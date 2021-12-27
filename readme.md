@@ -5,3 +5,6 @@ Zabbix é uma ferramenta de software de monitoramento de código aberto para div
 > O Zabbix fornece métricas de monitoramento, entre outras, utilização da rede, carga da CPU e consumo de espaço em disco.
 
 
+##### ✅ Referências de dados
+
+
