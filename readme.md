@@ -12,12 +12,12 @@ Zabbix é uma ferramenta de software de monitoramento de código aberto para div
 
 
 ### 🛠 Etapa 4: Abra a porta do firewall para Grafana
-Se você tiver um serviço firewalld em execução, permita a porta `3000` de acesso ao painel da rede:
+Se você tiver um serviço firewalld em execução, permita a porta `10050 10051` de acesso ao painel da rede:
 
 ```
-sudo firewall-cmd --remove-service=dhcpv6-client --permanent
-sudo firewall-cmd --remove-service=cockpit --permanent
-sudo firewall-cmd --add-port=3000/tcp --permanent
+sudo firewall-cmd --permanent --remove-service=dhcpv6-client
+sudo firewall-cmd --permanent --remove-service=cockpit
+sudo firewall-cmd --permanent --add-port=3000/tcp
 sudo firewall-cmd --reload
 sudo firewall-cmd --list-all 
 ```
