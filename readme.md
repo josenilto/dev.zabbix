@@ -17,7 +17,7 @@ Se você tiver um serviço firewalld em execução, permita a porta `10050 10051
 ```
 sudo firewall-cmd --permanent --remove-service=dhcpv6-client
 sudo firewall-cmd --permanent --remove-service=cockpit
-sudo firewall-cmd --permanent --add-port=3000/tcp
+sudo firewall-cmd --permanent --add-service=zabbix-server
 sudo firewall-cmd --reload
 sudo firewall-cmd --list-all 
 ```
