@@ -5,16 +5,16 @@ Zabbix é uma ferramenta de software de monitoramento de código aberto para div
 > O Zabbix fornece métricas de monitoramento, entre outras, utilização da rede, carga da CPU e consumo de espaço em disco.
 
 
-##### ✅ Referências de dados
+✅ **Referências de dados**
 
 
 ✅**Mantenha seu servidor atualizado**
 
 ```Atualização
-yum update && yum upgrade
+yum update -y && yum upgrade -y
 ```
 
-### 🛠 Etapa 4: Abra a porta do firewall para Grafana
+🛠 **Etapa 4 :** Abra a porta do firewall para Grafana
 Se você tiver um serviço firewalld em execução, permita a porta `10050 10051` de acesso ao painel da rede:
 
 ```
