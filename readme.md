@@ -1,12 +1,10 @@
-# 🛠 DEV ZABBIX | Instalar e configuração.
+# 🛠 DEV ZABBIX | Configurações do serviços no linux
 
 Zabbix é uma ferramenta de software de monitoramento de código aberto para diversos componentes de TI, incluindo redes, servidores, máquinas virtuais e serviços em nuvem. 
 
 > O Zabbix fornece métricas de monitoramento, entre outras, utilização da rede, carga da CPU e consumo de espaço em disco.
 
-✅ **Referências de dados**
-
-✅**Mantenha seu servidor atualizado**
+**Mantenha seu servidor atualizado**
 
 ```Atualização
 yum update -y && yum upgrade -y
@@ -28,3 +26,4 @@ sudo firewall-cmd --list-all
 sudo rm -f /etc/motd.d/cockpit
 ```
 
+**Referências de dados**
