@@ -1,0 +1,45 @@
+version: '3.7'
+services:
+  db:
+    image: mariadb:10.5
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: zabbix
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - db_data:/var/lib/mysql
+
+  zabbix-server:
+    build: ./zabbix-server
+    image: local/zabbix-server:latest
+    restart: unless-stopped
+    environment:
+      DB_SERVER_HOST: db
+      MYSQL_DATABASE: zabbix
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix
+    depends_on:
+      - db
+    ports:
+      - 10051:10051
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-mysql:latest
+    restart: unless-stopped
+    environment:
+      DB_SERVER_HOST: db
+      MYSQL_DATABASE: zabbix
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix
+      ZBX_SERVER_HOST: zabbix-server
+      PHP_TZ: "UTC"
+    depends_on:
+      - db
+      - zabbix-server
+    ports:
+      - 8080:8080
+
+volumes:
+  db_data:
