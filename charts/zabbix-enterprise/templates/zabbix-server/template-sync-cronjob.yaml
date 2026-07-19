@@ -1,0 +1,96 @@
+{{- if .Values.zabbix.server.enabled }}
+{{/*
+Closes the "Configuration as Code" loop for every Zabbix template shipped as a ConfigMap
+under templates/cloud-integrations (any cloud subfolder, files named
+zabbix-template-<name>.yaml, labeled zabbix-enterprise/template=true): on a schedule,
+list every matching ConfigMap via the
+Kubernetes API (RBAC granted in templates/rbac/role.yaml) and import each payload into
+Zabbix through configuration.import, so adding a new cloud template only means adding a
+new ConfigMap - this Job picks it up automatically, no manual UI import step.
+Requires a Zabbix API user secret (zabbix-api-credentials: user/password) provisioned the
+same way as the DB credentials (ExternalSecret/Vault, or pre-created for a dev sandbox).
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-template-sync
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-template-sync") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "zabbix-enterprise.serviceAccountName" . }}
+          securityContext:
+            {{- include "zabbix-enterprise.podSecurityContext" . | nindent 12 }}
+          containers:
+            - name: template-sync
+              # Illustrative image bundling kubectl + curl + jq; pin to your org's approved
+              # equivalent (a small custom image built in CI is recommended for prod).
+              image: "alpine/k8s:1.30.2"
+              securityContext:
+                {{- include "zabbix-enterprise.containerSecurityContext" . | nindent 16 }}
+              env:
+                - name: ZBX_FRONTEND_URL
+                  value: "http://{{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-frontend") }}:{{ .Values.zabbix.frontend.service.port }}"
+                - name: ZBX_NAMESPACE
+                  value: {{ include "zabbix-enterprise.namespace" . }}
+                - name: ZBX_API_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: zabbix-api-credentials
+                      key: username
+                - name: ZBX_API_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: zabbix-api-credentials
+                      key: password
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  echo "Authenticating to Zabbix API at ${ZBX_FRONTEND_URL} ..."
+                  AUTH_TOKEN=$(curl -sS -X POST "${ZBX_FRONTEND_URL}/api_jsonrpc.php" \
+                    -H 'Content-Type: application/json-rpc' \
+                    -d '{"jsonrpc":"2.0","method":"user.login","params":{"username":"'"${ZBX_API_USER}"'","password":"'"${ZBX_API_PASSWORD}"'"},"id":1}' \
+                    | jq -r '.result')
+
+                  if [ -z "${AUTH_TOKEN}" ] || [ "${AUTH_TOKEN}" = "null" ]; then
+                    echo "Zabbix API authentication failed" >&2
+                    exit 1
+                  fi
+
+                  CONFIGMAPS=$(kubectl -n "${ZBX_NAMESPACE}" get configmaps \
+                    -l zabbix-enterprise/template=true -o json | jq -r '.items[].metadata.name')
+
+                  for cm in ${CONFIGMAPS}; do
+                    KEYS=$(kubectl -n "${ZBX_NAMESPACE}" get configmap "${cm}" -o json | jq -r '.data | keys[]')
+                    for key in ${KEYS}; do
+                      echo "Importing template from ConfigMap/${cm} key ${key} ..."
+                      PAYLOAD=$(kubectl -n "${ZBX_NAMESPACE}" get configmap "${cm}" -o jsonpath="{.data.${key}}")
+                      curl -sS -X POST "${ZBX_FRONTEND_URL}/api_jsonrpc.php" \
+                        -H 'Content-Type: application/json-rpc' \
+                        -d @<(jq -n --arg auth "${AUTH_TOKEN}" --arg src "${PAYLOAD}" \
+                          '{jsonrpc:"2.0",method:"configuration.import",params:{format:"yaml",source:$src,rules:{templates:{createMissing:true,updateExisting:true},template_groups:{createMissing:true},items:{createMissing:true,updateExisting:true},triggers:{createMissing:true,updateExisting:true},discoveryRules:{createMissing:true,updateExisting:true}}},auth:$auth,id:1}') \
+                        | jq .
+                    done
+                  done
+
+                  echo "Template sync complete."
+              resources:
+                requests: { cpu: 50m, memory: 64Mi }
+                limits: { cpu: 250m, memory: 256Mi }
+{{- end }}

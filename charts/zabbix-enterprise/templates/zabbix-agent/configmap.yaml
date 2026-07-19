@@ -1,0 +1,25 @@
+{{- if .Values.zabbix.agent2.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-agent") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-agent") | nindent 4 }}
+data:
+  {{- if .Values.zabbix.agent2.plugins.docker }}
+  docker.conf: |
+    Plugins.Docker.Endpoint=unix:///var/run/docker.sock
+  {{- end }}
+  {{- if .Values.zabbix.agent2.plugins.systemd }}
+  systemd.conf: |
+    Plugins.Systemd.System.Filter=.+\.service$
+  {{- end }}
+  {{- if .Values.zabbix.agent2.plugins.vmware }}
+  vmware.conf: |
+    # VMware hypervisor/VM monitoring is collected by the Zabbix Server VMware collector,
+    # not agent2 directly - see values.cloudIntegrations.onprem.hypervisors.vmware and
+    # templates/cloud-integrations/onprem/zabbix-template-vmware.yaml for the item/trigger set.
+    Plugins.Vmware.Timeout=60
+  {{- end }}
+{{- end }}

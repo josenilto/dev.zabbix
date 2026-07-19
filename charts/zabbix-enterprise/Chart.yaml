@@ -1,0 +1,101 @@
+apiVersion: v2
+name: zabbix-enterprise
+description: >
+  Zabbix Enterprise Multi-Cloud Observability Platform - a single umbrella Helm chart
+  that deploys Zabbix (server/frontend/agent2/proxy) as the infrastructure & business
+  monitoring core, and wires it together with Prometheus, Grafana, Loki, Grafana Alloy,
+  the OpenTelemetry Collector and Tempo for unified metrics/logs/traces observability
+  across AWS, Azure, GCP, OCI, on-premises, Kubernetes and OpenShift.
+type: application
+version: 0.1.0
+appVersion: "7.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/your-org/zabbix-helm
+sources:
+  - https://github.com/your-org/zabbix-helm
+keywords:
+  - zabbix
+  - observability
+  - monitoring
+  - multi-cloud
+  - kubernetes
+  - openshift
+  - sre
+  - gitops
+maintainers:
+  - name: Platform Engineering
+    email: platform-eng@example.com
+icon: https://assets.zabbix.com/img/logo/zabbix_logo_500x131.png
+
+# NOTE on dependency versions:
+# The version ranges below are indicative starting points, not verified-latest pins.
+# Run `helm dependency update` in an environment with internet access, review the
+# resulting Chart.lock, and pin exact resolved versions before any production rollout.
+dependencies:
+  # --- Zabbix database (internal HA MySQL option; disable and point at an external
+  # managed database - RDS/Azure DB/Cloud SQL/Autonomous DB - for production) ---
+  - name: mysql
+    version: ">=9.0.0 <11.0.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: database.internal.mysql.enabled
+    alias: zabbix-mysql
+
+  - name: postgresql
+    version: ">=15.0.0 <17.0.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: database.internal.postgresql.enabled
+    alias: zabbix-postgresql
+
+  # --- Metrics pipeline ---
+  - name: kube-prometheus-stack
+    version: ">=65.0.0 <70.0.0"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kube-prometheus-stack.enabled
+
+  # --- Visualization ---
+  - name: grafana
+    version: ">=8.0.0 <9.0.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled
+
+  # --- Logs pipeline ---
+  - name: loki
+    version: ">=6.0.0 <7.0.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: loki.enabled
+
+  # --- Unified telemetry agent (metrics/logs/traces collection at the edge) ---
+  - name: alloy
+    version: ">=0.9.0 <2.0.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: alloy.enabled
+
+  # --- Traces backend ---
+  - name: tempo
+    version: ">=1.7.0 <2.0.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: tempo.enabled
+
+  # --- Vendor-neutral collector (application + infra telemetry -> Tempo/Prometheus/Loki) ---
+  - name: opentelemetry-collector
+    version: ">=0.90.0 <1.0.0"
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    condition: opentelemetry-collector.enabled
+
+  # --- Secrets management ---
+  - name: external-secrets
+    version: ">=0.9.0 <1.0.0"
+    repository: https://charts.external-secrets.io
+    condition: externalSecrets.enabled
+
+  # --- Backup / DR ---
+  - name: velero
+    version: ">=6.0.0 <8.0.0"
+    repository: https://vmware-tanzu.github.io/helm-charts
+    condition: velero.enabled
+
+  # --- FinOps ---
+  - name: opencost
+    version: ">=1.30.0 <2.0.0"
+    repository: https://opencost.github.io/opencost-helm-chart
+    condition: finops.opencost.enabled

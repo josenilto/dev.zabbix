@@ -1,0 +1,105 @@
+{{- if .Values.zabbix.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-frontend") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 4 }}
+spec:
+  {{- if not .Values.zabbix.frontend.autoscaling.enabled }}
+  replicas: {{ .Values.zabbix.frontend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/zabbix-frontend/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.serviceAccountName" . }}
+      securityContext:
+        {{- include "zabbix-enterprise.podSecurityContext" . | nindent 8 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: zabbix-frontend
+          image: {{ include "zabbix-enterprise.image" (dict "root" $ "repository" .Values.zabbix.frontend.image.repository "tag" .Values.zabbix.frontend.image.tag) }}
+          imagePullPolicy: {{ .Values.zabbix.frontend.image.pullPolicy }}
+          securityContext:
+            {{- include "zabbix-enterprise.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: DB_SERVER_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
+                  key: host
+            - name: MYSQL_DATABASE
+              value: {{ .Values.database.internal.mysql.auth.database | default .Values.database.external.database }}
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
+                  key: password
+            - name: ZBX_SERVER_HOST
+              value: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server-headless") }}
+            - name: ZBX_SERVER_NAME
+              value: "{{ .Values.global.environment }}-{{ .Values.global.cloud }}"
+            - name: PHP_TZ
+              value: {{ .Values.zabbix.timezone | quote }}
+            {{- if .Values.zabbix.frontend.sso.oidc.enabled }}
+            - name: ZBX_SSO_OIDC_ISSUER
+              value: {{ .Values.zabbix.frontend.sso.oidc.issuer | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: session
+              mountPath: /var/lib/php/session
+          resources:
+            {{- toYaml .Values.zabbix.frontend.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: session
+          emptyDir: {}
+{{- end }}

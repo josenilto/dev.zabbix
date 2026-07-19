@@ -1,0 +1,29 @@
+# Helm
+charts/zabbix-enterprise/charts/*.tgz
+**/charts/*.tgz
+Chart.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Secrets - never commit real secrets, only ExternalSecret/SealedSecret references
+*.secret.yaml
+secrets.auto.yaml
+*.pem
+*.key
+!templates/**/*.yaml
+
+# Local overrides
+values-local.yaml
+values-override.yaml
+*.local.yaml
+
+# Terraform (if added later for cloud bootstrap)
+.terraform/
+*.tfstate
+*.tfstate.backup

@@ -1,0 +1,82 @@
+{{- if index .Values "kube-prometheus-stack" "enabled" }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-routing
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    release: kps
+spec:
+  route:
+    groupBy: {{ .Values.alerting.route.groupBy | toJson }}
+    groupWait: {{ .Values.alerting.route.groupWait }}
+    groupInterval: {{ .Values.alerting.route.groupInterval }}
+    repeatInterval: {{ .Values.alerting.route.repeatInterval }}
+    receiver: default
+    routes:
+      {{- if .Values.alerting.receivers.pagerduty.enabled }}
+      - receiver: pagerduty
+        matchers:
+          - name: severity
+            matchType: "="
+            value: critical
+        continue: true
+      {{- end }}
+      {{- if .Values.alerting.receivers.slack.enabled }}
+      - receiver: slack
+        matchers:
+          - name: severity
+            matchType: "=~"
+            value: "warning|critical"
+        continue: true
+      {{- end }}
+      {{- if .Values.alerting.receivers.msteams.enabled }}
+      - receiver: msteams
+        continue: true
+      {{- end }}
+  receivers:
+    - name: default
+    {{- if .Values.alerting.receivers.slack.enabled }}
+    - name: slack
+      slackConfigs:
+        - apiURL:
+            name: {{ .Values.alerting.receivers.slack.webhookSecretRef }}
+            key: url
+          channel: {{ .Values.alerting.receivers.slack.channel | quote }}
+          sendResolved: true
+          title: '{{ "{{" }} .CommonAnnotations.summary {{ "}}" }}'
+          text: '{{ "{{" }} .CommonAnnotations.description {{ "}}" }}'
+    {{- end }}
+    {{- if .Values.alerting.receivers.pagerduty.enabled }}
+    - name: pagerduty
+      pagerdutyConfigs:
+        - serviceKey:
+            name: {{ .Values.alerting.receivers.pagerduty.integrationKeySecretRef }}
+            key: integrationKey
+          sendResolved: true
+          severity: '{{ "{{" }} .CommonLabels.severity {{ "}}" }}'
+    {{- end }}
+    {{- if .Values.alerting.receivers.opsgenie.enabled }}
+    - name: opsgenie
+      opsgenieConfigs:
+        - apiKey:
+            name: {{ .Values.alerting.receivers.opsgenie.apiKeySecretRef }}
+            key: apiKey
+          sendResolved: true
+    {{- end }}
+    {{- if .Values.alerting.receivers.msteams.enabled }}
+    - name: msteams
+      webhookConfigs:
+        - urlSecret:
+            name: {{ .Values.alerting.receivers.msteams.webhookSecretRef }}
+            key: url
+          sendResolved: true
+    {{- end }}
+    {{- if .Values.alerting.receivers.email.enabled }}
+    - name: email
+      emailConfigs:
+        - to: noc@example.internal
+          sendResolved: true
+    {{- end }}
+{{- end }}

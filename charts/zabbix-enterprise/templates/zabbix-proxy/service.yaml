@@ -1,0 +1,29 @@
+{{- if .Values.zabbix.proxy.enabled }}
+{{- $root := . }}
+{{- $instances := .Values.zabbix.proxy.instances }}
+{{- if not $instances }}
+{{- $instances = list (dict "name" "default" "mode" .Values.zabbix.proxy.mode) }}
+{{- end }}
+{{- range $instances }}
+{{- $instance := . }}
+{{- $instanceName := printf "zabbix-proxy-%s" $instance.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $root "component" $instanceName) }}
+  namespace: {{ include "zabbix-enterprise.namespace" $root }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $root "component" $instanceName) | nindent 4 }}
+    zabbix-enterprise/proxy-instance: {{ $instance.name }}
+spec:
+  clusterIP: None
+  ports:
+    - name: trapper
+      port: 10051
+      targetPort: trapper
+      protocol: TCP
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $root "component" $instanceName) | nindent 4 }}
+{{- end }}
+{{- end }}

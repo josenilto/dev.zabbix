@@ -1,0 +1,34 @@
+## Cluster-specific overrides layered last: values.yaml -> values-prd.yaml -> values-oci.yaml -> this file.
+global:
+  clusterName: oke-prd-iad
+  region: us-ashburn-1
+  domain: zabbix.oci.example.com
+  storageClass: oci-bv
+
+zabbix:
+  frontend:
+    ingress:
+      hosts:
+        - host: zabbix.oci.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-prd
+          hosts:
+            - zabbix.oci.example.com
+
+database:
+  external:
+    host: "zabbix-prd.mysql.us-ashburn-1.oci.oraclecloud.com"
+
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: zabbix-enterprise-prd-loki-chunks
+        ruler: zabbix-enterprise-prd-loki-ruler
+        admin: zabbix-enterprise-prd-loki-admin
+      s3:
+        endpoint: "https://<namespace>.compat.objectstorage.us-ashburn-1.oraclecloud.com"
+        s3forcepathstyle: true

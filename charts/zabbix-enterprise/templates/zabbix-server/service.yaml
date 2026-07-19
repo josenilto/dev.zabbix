@@ -1,0 +1,37 @@
+{{- if .Values.zabbix.server.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+spec:
+  type: {{ .Values.zabbix.server.service.type }}
+  ports:
+    - name: trapper
+      port: {{ .Values.zabbix.server.service.trapperPort }}
+      targetPort: trapper
+      protocol: TCP
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+---
+# Headless service so every proxy/HA-cluster node is individually addressable when needed
+# (e.g. targeted active-proxy pinning, debugging a single HA node).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server-headless") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: trapper
+      port: {{ .Values.zabbix.server.service.trapperPort }}
+      targetPort: trapper
+      protocol: TCP
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+{{- end }}

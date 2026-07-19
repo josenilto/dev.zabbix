@@ -1,0 +1,12 @@
+{{- if .Values.zabbix.frontend.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-frontend") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 4 }}
+data:
+  # Reserved for future frontend-specific overrides (branding, custom nginx snippets).
+  placeholder: "true"
+{{- end }}

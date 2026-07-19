@@ -1,0 +1,115 @@
+## Cluster-scoped Kyverno ClusterPolicies, installed once per cluster (Kyverno itself is
+## assumed pre-installed as a cluster add-on, e.g. via its own Argo CD Application under
+## gitops/applications/ - not templated by the zabbix-enterprise chart, since a Helm
+## release should not own cluster-scoped policy objects shared by every tenant).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: zabbix-enterprise-require-non-root
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["zabbix-enterprise"]
+      validate:
+        message: "Containers must set securityContext.runAsNonRoot=true (Security by Design / restricted PSS)."
+        pattern:
+          spec:
+            =(securityContext):
+              =(runAsNonRoot): "true"
+            containers:
+              - =(securityContext):
+                  =(runAsNonRoot): "true"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: zabbix-enterprise-disallow-privileged
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-privileged-containers
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["zabbix-enterprise"]
+      exclude:
+        any:
+          - resources:
+              # zabbix-agent needs SYS_PTRACE + hostPID for host-level checks, not full
+              # privileged - explicitly excluded from the *privileged* check only.
+              selector:
+                matchLabels:
+                  app.kubernetes.io/component: zabbix-agent
+      validate:
+        message: "Privileged containers are not allowed."
+        pattern:
+          spec:
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: zabbix-enterprise-require-resource-limits
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-cpu-memory-limits
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["zabbix-enterprise"]
+      validate:
+        message: "Every container must declare CPU and memory limits (FinOps / capacity governance)."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: zabbix-enterprise-verify-image-signatures
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  validationFailureAction: Audit    # start in Audit, promote to Enforce once Cosign signing is rolled out org-wide
+  background: false
+  rules:
+    - name: verify-cosign-signature
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaces: ["zabbix-enterprise"]
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/your-org/*"
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |-
+                      -----BEGIN PUBLIC KEY-----
+                      REPLACE-WITH-YOUR-COSIGN-PUBLIC-KEY
+                      -----END PUBLIC KEY-----

@@ -1,0 +1,39 @@
+## Maps OIDC/SSO groups (Microsoft Entra ID / LDAP / SAML - see docs/security/iam-model.md)
+## onto Kubernetes RBAC. Argo CD's own RBAC (who can sync/override Applications) is
+## configured separately in the Argo CD ConfigMap/argocd-rbac-cm, see
+## gitops/applications/zabbix-enterprise/project.yaml roles: for that layer.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: zabbix-enterprise-platform-engineering
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+subjects:
+  - kind: Group
+    name: platform-engineering
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: edit
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: zabbix-enterprise-sre-noc-soc-readonly
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+subjects:
+  - kind: Group
+    name: sre
+    apiGroup: rbac.authorization.k8s.io
+  - kind: Group
+    name: noc
+    apiGroup: rbac.authorization.k8s.io
+  - kind: Group
+    name: soc
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io

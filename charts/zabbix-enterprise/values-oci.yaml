@@ -1,0 +1,78 @@
+## OCI overlay. Targets: OKE + Compute/Autonomous Database/MySQL HeatWave/Load Balancer/
+## Object Storage/Functions/Streaming/VCN/NAT Gateway.
+## Worked examples shipped in templates/cloud-integrations/oci: Compute + Autonomous Database.
+global:
+  cloud: oci
+
+zabbix:
+  proxy:
+    instances:
+      - name: proxy-oci-iad
+        mode: active
+        region: us-ashburn-1
+      - name: proxy-oci-fra
+        mode: active
+        region: eu-frankfurt-1
+
+database:
+  external:
+    enabled: true
+    engine: mysql                   # MySQL HeatWave, or point at Autonomous DB via a compatible driver/proxy
+    port: 3306
+    sslMode: require
+    existingSecretName: zabbix-db-external-credentials
+
+loki:
+  loki:
+    storage:
+      type: s3                      # OCI Object Storage exposes an S3-compatible API
+      s3:
+        endpoint: "https://<namespace>.compat.objectstorage.<region>.oraclecloud.com"
+        region: "us-ashburn-1"
+        s3forcepathstyle: true
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: s3
+
+cloudIntegrations:
+  oci:
+    enabled: true
+    compartmentIds: []
+    auth:
+      mode: instance-principal        # OCI Instance/Resource Principal preferred over API key files
+    exporters:
+      ociMetrics:
+        enabled: true
+        # TODO: pin to your org's approved OCI Monitoring Prometheus-compatible exporter image/tag
+        image:
+          repository: ""
+          tag: ""
+        scrapeInterval: 5m
+        namespaces:
+          - namespace: oci_computeagent
+            metrics: ["CpuUtilization", "MemoryUtilization", "NetworksBytesIn", "NetworksBytesOut"]
+          - namespace: oci_autonomous_database
+            metrics: ["CpuUtilization", "StorageUtilization", "SessionCount"]
+    zabbixTemplates:
+      - compute
+      - autonomous-database
+    eventIntegration:
+      ociEvents:
+        enabled: false               # forward OCI Events service notifications to Zabbix
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      additionalScrapeConfigs:
+        - job_name: oci-metrics-exporter
+          static_configs:
+            - targets: ["oci-metrics-exporter.monitoring.svc:9107"]
+
+networkPolicy:
+  allowFromNamespaces:
+    - monitoring
+    - ingress-nginx
+    - kube-system

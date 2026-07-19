@@ -1,0 +1,26 @@
+{{- if and (index .Values "kube-prometheus-stack" "enabled") .Values.zabbix.server.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    release: kps
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ include "zabbix-enterprise.namespace" . }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: zabbix-enterprise
+  endpoints:
+    # Zabbix itself does not expose a native /metrics endpoint; the community
+    # "zabbix_exporter" sidecar (or Zabbix 6.0+ built-in Prometheus-compatible export via
+    # the API) should be deployed alongside zabbix-server to bridge Zabbix item values into
+    # Prometheus for the dual-pipeline pattern shown in the architecture diagram.
+    - port: zabbix-exporter
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+{{- end }}

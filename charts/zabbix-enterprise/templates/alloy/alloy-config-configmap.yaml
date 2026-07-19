@@ -1,0 +1,121 @@
+{{/*
+Grafana Alloy pipeline: Kubernetes metrics/logs -> Prometheus/Loki, and an OTLP front
+door for application traces -> Tempo (the "unified agent" box in section 9 of the
+architecture). We own this ConfigMap directly (rather than relying on the alloy
+subchart's inline `alloy.configMap.content` value) so the River config is reviewable as
+its own file. This assumes the grafana/alloy chart's `alloy.configMap.create: false` +
+`alloy.configMap.name` / `alloy.configMap.key` values point it at this ConfigMap -
+reconcile the exact key names against the chart version resolved by `helm dependency
+update`, they occasionally shift between chart releases.
+*/}}
+{{- if .Values.alloy.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-alloy-config
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+data:
+  config.alloy: |
+    // --- Discovery -----------------------------------------------------------
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "pods_with_metrics_annotation" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+        regex         = "true"
+        action        = "keep"
+      }
+    }
+
+    // --- Metrics: Kubernetes pods annotated for scraping -> Prometheus --------
+    prometheus.scrape "kubernetes_pods" {
+      targets      = discovery.relabel.pods_with_metrics_annotation.output
+      forward_to   = [prometheus.remote_write.default.receiver]
+      scrape_interval = "30s"
+    }
+
+    prometheus.remote_write "default" {
+      endpoint {
+        url = "http://kps-kube-prometheus-stack-prometheus.{{ include "zabbix-enterprise.namespace" . }}.svc:9090/api/v1/write"
+      }
+    }
+
+    // --- Logs: container logs from every pod on the node -> Loki --------------
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+    }
+
+    loki.source.kubernetes "pod_logs" {
+      targets    = discovery.relabel.pod_logs.output
+      forward_to = [loki.process.enrich.receiver]
+    }
+
+    loki.process "enrich" {
+      forward_to = [loki.write.default.receiver]
+
+      stage.static_labels {
+        values = {
+          cloud       = "{{ .Values.global.cloud }}",
+          environment = "{{ .Values.global.environment }}",
+        }
+      }
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://{{ include "zabbix-enterprise.fullname" . }}-loki-gateway.{{ include "zabbix-enterprise.namespace" . }}.svc/loki/api/v1/push"
+      }
+    }
+
+    // --- Traces: OTLP front door for instrumented applications -> Tempo -------
+    otelcol.receiver.otlp "default" {
+      grpc {
+        endpoint = "0.0.0.0:4317"
+      }
+      http {
+        endpoint = "0.0.0.0:4318"
+      }
+
+      output {
+        traces = [otelcol.processor.batch.default.input]
+      }
+    }
+
+    otelcol.processor.batch "default" {
+      output {
+        traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "{{ include "zabbix-enterprise.fullname" . }}-tempo.{{ include "zabbix-enterprise.namespace" . }}.svc:4317"
+        tls {
+          insecure = true
+        }
+      }
+    }
+{{- end }}

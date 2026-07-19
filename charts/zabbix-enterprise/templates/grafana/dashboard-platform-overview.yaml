@@ -1,0 +1,91 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-dashboard-platform-overview
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Platform"
+data:
+  platform-overview.json: |
+    {
+      "uid": "zbx-platform-overview",
+      "title": "Platform Overview - Zabbix Enterprise",
+      "tags": ["zabbix-enterprise", "platform"],
+      "timezone": "utc",
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          { "name": "cloud", "type": "custom", "query": "aws,azure,gcp,oci,onprem,openshift", "current": { "text": "All", "value": "$__all" }, "includeAll": true },
+          { "name": "environment", "type": "custom", "query": "dev,hml,prd", "current": { "text": "All", "value": "$__all" }, "includeAll": true }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Zabbix Server HA Nodes Up",
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "count(up{job=~\".*zabbix-server.*\", cloud=~\"$cloud\", environment=~\"$environment\"} == 1)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Active Zabbix Proxies",
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "count(up{job=~\".*zabbix-proxy.*\", cloud=~\"$cloud\", environment=~\"$environment\"} == 1)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Kubernetes Nodes Ready",
+          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})", "refId": "A" }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Firing Alerts",
+          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(ALERTS{alertstate=\"firing\", cloud=~\"$cloud\", environment=~\"$environment\"})", "refId": "A" }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Request Rate by Service",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total[5m])) by (service)", "refId": "A", "legendFormat": "{{"{{"}}service{{"}}"}}" }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Error Rate by Service",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service)", "refId": "A", "legendFormat": "{{"{{"}}service{{"}}"}}" }
+          ]
+        }
+      ]
+    }
+{{- end }}

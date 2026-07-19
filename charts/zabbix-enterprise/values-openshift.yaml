@@ -1,0 +1,51 @@
+## OpenShift/OKD overlay. Key differences from vanilla Kubernetes:
+##  - SecurityContextConstraints (SCC) assign a random non-root UID per namespace by
+##    default; a *fixed* runAsUser (as set in values.yaml security.podSecurityContext)
+##    requires either the "nonroot-v2"/"anyuid" SCC bound to this chart's ServiceAccount,
+##    or dropping the fixed UID entirely and letting OpenShift assign one (recommended -
+##    see the override below). SCCs themselves are cluster-scoped and managed once per
+##    cluster at gitops/infrastructure/security/, not per Helm release.
+##  - Routes are the native ingress mechanism; this chart still uses Ingress objects for
+##    portability; the OpenShift Ingress-to-Route Operator translates them automatically,
+##    so no Route template is required.
+##  - Image registry defaults to the in-cluster OpenShift ImageStream registry for
+##    anything built in-cluster; upstream images (Zabbix, Grafana, etc.) still pull from
+##    their public registries unless global.imageRegistry mirrors them internally.
+global:
+  cloud: openshift
+  podSecurityStandard: restricted
+
+security:
+  podSecurityContext:
+    runAsNonRoot: true
+    # No fixed runAsUser/fsGroup - let the OpenShift-assigned SCC UID range apply.
+    runAsUser: null
+    fsGroup: null
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+zabbix:
+  agent2:
+    # The DaemonSet's hostPID/hostPath usage requires the "privileged" or a custom SCC
+    # bound explicitly to its ServiceAccount - restrict to a dedicated node monitoring
+    # namespace, do not grant this SCC cluster-wide.
+    hostRootMount: true
+
+networkPolicy:
+  allowFromNamespaces:
+    - monitoring
+    - openshift-ingress
+
+database:
+  external:
+    enabled: true
+    engine: postgresql          # common default for OpenShift-hosted managed/self-run DBs
+
+cloudIntegrations:
+  onprem:
+    enabled: true                # OpenShift here is treated as an on-prem/hybrid target for hypervisor+network monitoring purposes

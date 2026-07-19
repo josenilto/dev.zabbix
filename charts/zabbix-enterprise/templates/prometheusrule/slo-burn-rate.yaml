@@ -1,0 +1,69 @@
+{{- if and (index .Values "kube-prometheus-stack" "enabled") .Values.slo.services }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-slo-burn-rate
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    release: kps
+spec:
+  groups:
+    - name: zabbix-enterprise.slo-recording-rules
+      rules:
+        {{- range .Values.slo.services }}
+        - record: slo:errors_ratio:ratio_rate5m
+          expr: |
+            sum(rate(http_requests_total{status=~"5..",service="{{ .name }}"}[5m]))
+            /
+            sum(rate(http_requests_total{service="{{ .name }}"}[5m]))
+          labels:
+            service: {{ .name }}
+        - record: slo:errors_ratio:ratio_rate1h
+          expr: |
+            sum(rate(http_requests_total{status=~"5..",service="{{ .name }}"}[1h]))
+            /
+            sum(rate(http_requests_total{service="{{ .name }}"}[1h]))
+          labels:
+            service: {{ .name }}
+        - record: slo:errors_ratio:ratio_rate6h
+          expr: |
+            sum(rate(http_requests_total{status=~"5..",service="{{ .name }}"}[6h]))
+            /
+            sum(rate(http_requests_total{service="{{ .name }}"}[6h]))
+          labels:
+            service: {{ .name }}
+        {{- end }}
+    - name: zabbix-enterprise.slo-burn-rate-alerts
+      rules:
+        {{- range .Values.slo.services }}
+        {{- $errorBudget := subf 1.0 (divf (float64 .availability) 100.0) }}
+        # Google SRE workbook style multi-window, multi-burn-rate alert (14.4x / 1h+5m
+        # page-worthy burn, 6x / 6h+30m ticket-worthy burn) for an error-budget target
+        # derived from the configured availability SLO.
+        - alert: SLOFastBurn-{{ .name }}
+          expr: |
+            slo:errors_ratio:ratio_rate5m{service="{{ .name }}"} > (14.4 * {{ $errorBudget }})
+            and
+            slo:errors_ratio:ratio_rate1h{service="{{ .name }}"} > (14.4 * {{ $errorBudget }})
+          for: 2m
+          labels:
+            severity: critical
+            service: {{ .name }}
+            slo: availability
+          annotations:
+            summary: "{{ .name }} is fast-burning its error budget"
+            description: "At this burn rate the {{ .availability }}% availability SLO for {{ .name }} will be exhausted in well under a day. Page immediately."
+        - alert: SLOSlowBurn-{{ .name }}
+          expr: |
+            slo:errors_ratio:ratio_rate6h{service="{{ .name }}"} > (6 * {{ $errorBudget }})
+          for: 30m
+          labels:
+            severity: warning
+            service: {{ .name }}
+            slo: availability
+          annotations:
+            summary: "{{ .name }} is slow-burning its error budget"
+            description: "Sustained elevated error rate for {{ .name }} against its {{ .availability }}% availability SLO - open a ticket, no immediate page."
+        {{- end }}
+{{- end }}

@@ -1,0 +1,34 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+rules:
+  # Least-privilege: only what's needed inside this namespace (config reload watching,
+  # HA leader-election style coordination via configmaps/leases if ever needed).
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "zabbix-enterprise.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zabbix-enterprise.serviceAccountName" . }}
+    namespace: {{ include "zabbix-enterprise.namespace" . }}
+{{- end }}

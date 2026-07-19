@@ -1,0 +1,83 @@
+{{- if and .Values.cloudIntegrations.oci.enabled (has "autonomous-database" .Values.cloudIntegrations.oci.zabbixTemplates) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-oci-adb
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  oci-autonomous-database-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90
+          name: 'Cloud/OCI'
+      templates:
+        - uuid: 9c0d1e2f3a4b5c6d7e8f900112233445
+          template: 'OCI Autonomous Database by HTTP'
+          name: 'OCI Autonomous Database by HTTP'
+          description: 'Worked example: Autonomous Database health via the oci-metrics-exporter bridge (zabbix-enterprise cloud-integrations/oci).'
+          groups:
+            - name: 'Cloud/OCI'
+          discovery_rules:
+            - uuid: 0d1e2f3a4b5c6d7e8f9001122334455f
+              name: 'Autonomous Database discovery'
+              type: HTTP_AGENT
+              key: 'oci.adb.instance.discovery'
+              delay: 1h
+              url: 'http://oci-metrics-exporter.monitoring.svc:9107/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'oci_autonomous_database_cpuutilization_average'
+              lld_macro_paths:
+                - lld_macro: '{#DBNAME}'
+                  path: '$.resource_display_name'
+              item_prototypes:
+                - uuid: 1e2f3a4b5c6d7e8f90011223344556a1
+                  name: 'ADB {#DBNAME}: CPU utilization'
+                  type: HTTP_AGENT
+                  key: 'oci.adb.cpu.utilization[{#DBNAME}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://oci-metrics-exporter.monitoring.svc:9107/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'oci_autonomous_database_cpuutilization_average{resource_display_name="{#DBNAME}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+                - uuid: 2f3a4b5c6d7e8f90011223344556a1b2
+                  name: 'ADB {#DBNAME}: storage utilization'
+                  type: HTTP_AGENT
+                  key: 'oci.adb.storage.utilization[{#DBNAME}]'
+                  delay: 15m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://oci-metrics-exporter.monitoring.svc:9107/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'oci_autonomous_database_storageutilization_average{resource_display_name="{#DBNAME}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+              trigger_prototypes:
+                - uuid: 3a4b5c6d7e8f90011223344556a1b2c3
+                  expression: 'max(/OCI Autonomous Database by HTTP/oci.adb.storage.utilization[{#DBNAME}],30m)>85'
+                  name: 'ADB {#DBNAME}: high storage utilization'
+                  priority: HIGH
+          tags:
+            - tag: cloud
+              value: oci
+{{- end }}

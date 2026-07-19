@@ -1,0 +1,100 @@
+{{- if and .Values.cloudIntegrations.onprem.enabled .Values.cloudIntegrations.onprem.hypervisors.vmware.enabled }}
+{{/*
+Unlike the cloud examples, VMware monitoring does not need a separate exporter: Zabbix
+Server has a native VMware collector (enabled via ZBX_STARTVMWARECOLLECTORS in
+zabbix-server/deployment.yaml) that polls vCenter's SOAP API directly. This template
+defines the discovery rule/item/trigger prototypes; the vCenter "host" object itself
+(carrying the {$VMWARE.URL}/{$VMWARE.USERNAME}/{$VMWARE.PASSWORD} macros) is created via
+the Zabbix API/UI once per vCenter, sourcing the credentials from the
+vmware-vcenter-credentials Secret (see values.cloudIntegrations.onprem.hypervisors.vmware).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-vmware
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  onprem-vmware-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f
+          name: 'On-Premises/VMware'
+      templates:
+        - uuid: 5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f01
+          template: 'VMware Hypervisor'
+          name: 'VMware Hypervisor'
+          description: 'Worked example: ESXi hypervisor health via the Zabbix Server native VMware collector (zabbix-enterprise cloud-integrations/onprem).'
+          groups:
+            - name: 'On-Premises/VMware'
+          macros:
+            - macro: '{$VMWARE.URL}'
+              value: 'https://vcenter.example.internal/sdk'
+            - macro: '{$VMWARE.USERNAME}'
+              value: 'zabbix-readonly@vsphere.local'
+            - macro: '{$VMWARE.PASSWORD}'
+              value: ''
+              description: 'Populate via the vmware-vcenter-credentials Secret, never commit a real value here.'
+          discovery_rules:
+            - uuid: 6e7f8a9b0c1d2e3f4a5b6c7d8e9f0102
+              name: 'Hypervisor discovery'
+              type: ZABBIX
+              key: 'vmware.hv.discovery[{$VMWARE.URL}]'
+              delay: 1h
+              lld_macro_paths:
+                - lld_macro: '{#HV.UUID}'
+                  path: '$.uuid'
+                - lld_macro: '{#HV.NAME}'
+                  path: '$.name'
+              item_prototypes:
+                - uuid: 7f8a9b0c1d2e3f4a5b6c7d8e9f010203
+                  name: 'Hypervisor {#HV.NAME}: CPU utilization'
+                  type: ZABBIX
+                  key: 'vmware.hv.cpu.utilization[{$VMWARE.URL},{#HV.UUID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  tags:
+                    - tag: component
+                      value: hypervisor
+                - uuid: 8a9b0c1d2e3f4a5b6c7d8e9f01020304
+                  name: 'Hypervisor {#HV.NAME}: memory used'
+                  type: ZABBIX
+                  key: 'vmware.hv.memory.used[{$VMWARE.URL},{#HV.UUID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: B
+                  tags:
+                    - tag: component
+                      value: hypervisor
+                - uuid: 9b0c1d2e3f4a5b6c7d8e9f0102030405
+                  name: 'Hypervisor {#HV.NAME}: status'
+                  type: ZABBIX
+                  key: 'vmware.hv.status[{$VMWARE.URL},{#HV.UUID}]'
+                  delay: 1m
+                  history: 7d
+                  trends: 0
+                  value_type: TEXT
+                  tags:
+                    - tag: component
+                      value: hypervisor
+              trigger_prototypes:
+                - uuid: 0c1d2e3f4a5b6c7d8e9f010203040506
+                  expression: 'find(/VMware Hypervisor/vmware.hv.status[{$VMWARE.URL},{#HV.UUID}],,"like","gray")=1'
+                  name: 'Hypervisor {#HV.NAME}: unreachable/disconnected'
+                  priority: HIGH
+                - uuid: 1d2e3f4a5b6c7d8e9f01020304050607
+                  expression: 'min(/VMware Hypervisor/vmware.hv.cpu.utilization[{$VMWARE.URL},{#HV.UUID}],10m)>90'
+                  name: 'Hypervisor {#HV.NAME}: high CPU utilization'
+                  priority: WARNING
+          tags:
+            - tag: cloud
+              value: onprem
+{{- end }}

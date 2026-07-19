@@ -1,0 +1,17 @@
+{{- if .Values.zabbix.server.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+data:
+  # Extra directives not covered by the official image's environment variables are
+  # dropped into /etc/zabbix/zabbix_server.conf.d/ and merged automatically at startup.
+  99-enterprise-overrides.conf: |
+    LogType=console
+    LogSlowQueries=3000
+    ProblemHousekeepingFrequency=1
+    HousekeepingFrequency=1
+{{- end }}

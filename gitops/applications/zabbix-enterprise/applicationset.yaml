@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: zabbix-enterprise
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    # One Application per (cloud, environment) cell of the matrix. Add/remove entries
+    # here as new clusters come online - this is the single place that defines "which
+    # cloud x environment combinations exist" for the whole platform.
+    - list:
+        elements:
+          - cloud: aws
+            environment: dev
+            clusterServer: "https://kubernetes.default.svc"   # TODO: replace with the registered EKS-dev cluster's Argo CD server URL
+          - cloud: aws
+            environment: prd
+            clusterServer: "https://REPLACE-WITH-EKS-PRD-API-SERVER"
+          - cloud: azure
+            environment: prd
+            clusterServer: "https://REPLACE-WITH-AKS-PRD-API-SERVER"
+          - cloud: gcp
+            environment: prd
+            clusterServer: "https://REPLACE-WITH-GKE-PRD-API-SERVER"
+          - cloud: oci
+            environment: prd
+            clusterServer: "https://REPLACE-WITH-OKE-PRD-API-SERVER"
+          - cloud: onprem
+            environment: prd
+            clusterServer: "https://REPLACE-WITH-ONPREM-K8S-API-SERVER"
+          - cloud: openshift
+            environment: prd
+            clusterServer: "https://REPLACE-WITH-OCP-PRD-API-SERVER"
+  template:
+    metadata:
+      name: "zabbix-enterprise-{{.cloud}}-{{.environment}}"
+      labels:
+        app.kubernetes.io/part-of: zabbix-enterprise
+        zabbix-enterprise/cloud: "{{.cloud}}"
+        zabbix-enterprise/environment: "{{.environment}}"
+      annotations:
+        argocd.argoproj.io/sync-wave: "10"
+    spec:
+      project: zabbix-enterprise
+      source:
+        repoURL: "https://github.com/your-org/zabbix-helm.git"
+        targetRevision: main
+        path: charts/zabbix-enterprise
+        helm:
+          releaseName: zabbix-enterprise
+          valueFiles:
+            - values.yaml
+            - "values-{{.environment}}.yaml"
+            - "values-{{.cloud}}.yaml"
+            - "../../gitops/clusters/{{.cloud}}/{{.environment}}/values.yaml"
+      destination:
+        server: "{{.clusterServer}}"
+        namespace: zabbix-enterprise
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 10m
+      revisionHistoryLimit: 10

@@ -1,0 +1,49 @@
+suite: networkpolicy
+templates:
+  - networkpolicy/default-deny.yaml
+  - networkpolicy/allow-internal.yaml
+tests:
+  - it: renders a default-deny policy covering both Ingress and Egress
+    set:
+      global.networkPolicy.enabled: true
+      networkPolicy.defaultDeny: true
+    template: networkpolicy/default-deny.yaml
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+      - contains:
+          path: spec.policyTypes
+          content: Egress
+
+  - it: skips default-deny entirely when disabled
+    set:
+      networkPolicy.defaultDeny: false
+    template: networkpolicy/default-deny.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing at all when global.networkPolicy.enabled is false
+    set:
+      global.networkPolicy.enabled: false
+    templates:
+      - networkpolicy/default-deny.yaml
+      - networkpolicy/allow-internal.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: restricts frontend ingress to the configured allow-list namespaces
+    set:
+      global.networkPolicy.enabled: true
+      networkPolicy.allowFromNamespaces: ["ingress-nginx"]
+    template: networkpolicy/allow-internal.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: ingress-nginx

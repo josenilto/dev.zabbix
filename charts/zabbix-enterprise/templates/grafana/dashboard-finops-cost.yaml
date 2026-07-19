@@ -1,0 +1,75 @@
+{{- if and .Values.grafana.enabled .Values.finops.opencost.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-dashboard-finops-cost
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Executive"
+data:
+  finops-cost.json: |
+    {
+      "uid": "zbx-finops-cost",
+      "title": "Executive - Cloud Cost & FinOps",
+      "tags": ["zabbix-enterprise", "finops", "executive"],
+      "timezone": "utc",
+      "schemaVersion": 39,
+      "refresh": "1h",
+      "time": { "from": "now-30d", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "type": "piechart",
+          "title": "Cost by Cloud",
+          "gridPos": { "h": 9, "w": 8, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(opencost_node_total_hourly_cost) by (cloud)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "piechart",
+          "title": "Cost by Namespace",
+          "gridPos": { "h": 9, "w": 8, "x": 8, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(opencost_pod_total_hourly_cost) by (namespace)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "piechart",
+          "title": "Cost by Team/App Label",
+          "gridPos": { "h": 9, "w": 8, "x": 16, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(opencost_pod_total_hourly_cost) by (label_team, label_app)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "CPU Waste (requested vs used)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\"}) - sum(rate(container_cpu_usage_seconds_total[5m]))", "refId": "A", "legendFormat": "Idle CPU (cores)" }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Memory Waste (requested vs used)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\"}) - sum(container_memory_working_set_bytes)", "refId": "A", "legendFormat": "Idle Memory (bytes)" }
+          ]
+        }
+      ]
+    }
+{{- end }}

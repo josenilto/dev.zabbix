@@ -1,0 +1,104 @@
+{{- if and .Values.cloudIntegrations.aws.enabled (has "rds" .Values.cloudIntegrations.aws.zabbixTemplates) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-aws-rds
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  aws-rds-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 7f3a1c2e4b5d4e6f8a9b0c1d2e3f4a5b
+          name: 'Cloud/AWS'
+      templates:
+        - uuid: 7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d
+          template: 'AWS RDS by HTTP'
+          name: 'AWS RDS by HTTP'
+          description: 'Worked example: RDS instance health via the cloudwatch-exporter bridge (zabbix-enterprise cloud-integrations/aws).'
+          groups:
+            - name: 'Cloud/AWS'
+          discovery_rules:
+            - uuid: 8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e
+              name: 'RDS instance discovery'
+              type: HTTP_AGENT
+              key: 'aws.rds.instance.discovery'
+              delay: 1h
+              url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'aws_rds_cpuutilization_average'
+              lld_macro_paths:
+                - lld_macro: '{#DBINSTANCEID}'
+                  path: '$.dbinstance_identifier'
+              item_prototypes:
+                - uuid: 9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f
+                  name: 'RDS {#DBINSTANCEID}: CPU utilization'
+                  type: HTTP_AGENT
+                  key: 'aws.rds.cpu.utilization[{#DBINSTANCEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'aws_rds_cpuutilization_average{dbinstance_identifier="{#DBINSTANCEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+                - uuid: 0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a
+                  name: 'RDS {#DBINSTANCEID}: freeable memory'
+                  type: HTTP_AGENT
+                  key: 'aws.rds.freeable_memory[{#DBINSTANCEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: B
+                  url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'aws_rds_freeablememory_average{dbinstance_identifier="{#DBINSTANCEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+                - uuid: 1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b
+                  name: 'RDS {#DBINSTANCEID}: database connections'
+                  type: HTTP_AGENT
+                  key: 'aws.rds.database_connections[{#DBINSTANCEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'aws_rds_databaseconnections_average{dbinstance_identifier="{#DBINSTANCEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+              trigger_prototypes:
+                - uuid: 2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c
+                  expression: 'min(/AWS RDS by HTTP/aws.rds.cpu.utilization[{#DBINSTANCEID}],10m)>90'
+                  name: 'RDS instance {#DBINSTANCEID}: high CPU utilization'
+                  priority: WARNING
+                - uuid: 3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d
+                  expression: 'max(/AWS RDS by HTTP/aws.rds.freeable_memory[{#DBINSTANCEID}],10m)<268435456'
+                  name: 'RDS instance {#DBINSTANCEID}: low freeable memory (<256MB)'
+                  priority: HIGH
+          tags:
+            - tag: cloud
+              value: aws
+{{- end }}

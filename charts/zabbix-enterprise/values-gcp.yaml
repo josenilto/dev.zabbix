@@ -1,0 +1,77 @@
+## GCP overlay. Targets: GKE + Compute Engine/Cloud SQL/Cloud Run/Cloud Functions/
+## Load Balancing/Cloud Storage/Pub-Sub/Memorystore/BigQuery/VPC/Cloud NAT.
+## Worked examples shipped in templates/cloud-integrations/gcp: Compute Engine + Cloud SQL.
+global:
+  cloud: gcp
+
+zabbix:
+  proxy:
+    instances:
+      - name: proxy-gcp-us-central1
+        mode: active
+        region: us-central1
+      - name: proxy-gcp-europe-west1
+        mode: active
+        region: europe-west1
+
+database:
+  external:
+    enabled: true
+    engine: mysql                   # or postgresql - Cloud SQL
+    port: 3306
+    sslMode: require
+    existingSecretName: zabbix-db-external-credentials
+
+loki:
+  loki:
+    storage:
+      type: gcs
+      gcs:
+        # bucketname via ExternalSecret -> Kubernetes Secret
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: gcs
+
+cloudIntegrations:
+  gcp:
+    enabled: true
+    projectIds: []
+    auth:
+      mode: workload-identity        # GKE Workload Identity preferred over service-account key files
+      serviceAccountEmail: "zabbix-enterprise@PROJECT_ID.iam.gserviceaccount.com"
+    exporters:
+      stackdriver:
+        enabled: true
+        # TODO: pin to your org's approved stackdriver/cloud-monitoring exporter image/tag
+        image:
+          repository: ""
+          tag: ""
+        scrapeInterval: 5m
+        monitoredResourceTypes:
+          - type: gce_instance
+            metrics: ["compute.googleapis.com/instance/cpu/utilization", "compute.googleapis.com/instance/network/received_bytes_count"]
+          - type: cloudsql_database
+            metrics: ["cloudsql.googleapis.com/database/cpu/utilization", "cloudsql.googleapis.com/database/memory/utilization", "cloudsql.googleapis.com/database/network/connections"]
+    zabbixTemplates:
+      - compute-engine
+      - cloud-sql
+    eventIntegration:
+      pubsub:
+        enabled: false              # forward GCP operational events/alerts to Zabbix via Pub/Sub push subscription
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      additionalScrapeConfigs:
+        - job_name: gcp-stackdriver-exporter
+          static_configs:
+            - targets: ["stackdriver-exporter.monitoring.svc:9255"]
+
+networkPolicy:
+  allowFromNamespaces:
+    - monitoring
+    - ingress-nginx
+    - kube-system

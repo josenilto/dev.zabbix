@@ -1,0 +1,14 @@
+{{- if and .Values.zabbix.server.enabled .Values.zabbix.server.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.zabbix.server.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 6 }}
+{{- end }}

@@ -1,0 +1,15 @@
+## Hosts cluster-wide shared controllers installed once per cluster and used across every
+## tenant namespace (External Secrets Operator, Kyverno, Velero) - NOT the zabbix-enterprise
+## Helm release itself, which lives in its own "zabbix-enterprise" namespace per
+## environment (Prometheus/Grafana/Loki/Alloy/Tempo are subcharts of that same release, so
+## they land there too). Kept as a distinct namespace so a compromise or misconfiguration
+## in a tenant workload can't touch these cluster-shared controllers' RBAC.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

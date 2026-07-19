@@ -1,0 +1,82 @@
+{{- if and .Values.cloudIntegrations.gcp.enabled (has "cloud-sql" .Values.cloudIntegrations.gcp.zabbixTemplates) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-gcp-cloudsql
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  gcp-cloud-sql-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c
+          name: 'Cloud/GCP'
+      templates:
+        - uuid: 9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b
+          template: 'GCP Cloud SQL by HTTP'
+          name: 'GCP Cloud SQL by HTTP'
+          description: 'Worked example: Cloud SQL instance health via the stackdriver-exporter bridge (zabbix-enterprise cloud-integrations/gcp).'
+          groups:
+            - name: 'Cloud/GCP'
+          discovery_rules:
+            - uuid: 0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
+              name: 'Cloud SQL instance discovery'
+              type: HTTP_AGENT
+              key: 'gcp.cloudsql.instance.discovery'
+              delay: 1h
+              url: 'http://stackdriver-exporter.monitoring.svc:9255/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'stackdriver_cloudsql_database_cloudsql_googleapis_com_database_cpu_utilization'
+              lld_macro_paths:
+                - lld_macro: '{#DATABASEID}'
+                  path: '$.database_id'
+              item_prototypes:
+                - uuid: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6e
+                  name: 'Cloud SQL {#DATABASEID}: CPU utilization'
+                  type: HTTP_AGENT
+                  key: 'gcp.cloudsql.cpu.utilization[{#DATABASEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://stackdriver-exporter.monitoring.svc:9255/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'stackdriver_cloudsql_database_cloudsql_googleapis_com_database_cpu_utilization{database_id="{#DATABASEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+                - uuid: 2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7f
+                  name: 'Cloud SQL {#DATABASEID}: connections'
+                  type: HTTP_AGENT
+                  key: 'gcp.cloudsql.connections[{#DATABASEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  url: 'http://stackdriver-exporter.monitoring.svc:9255/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'stackdriver_cloudsql_database_cloudsql_googleapis_com_database_network_connections{database_id="{#DATABASEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+              trigger_prototypes:
+                - uuid: 3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e80
+                  expression: 'min(/GCP Cloud SQL by HTTP/gcp.cloudsql.cpu.utilization[{#DATABASEID}],10m)>0.9'
+                  name: 'Cloud SQL {#DATABASEID}: high CPU utilization'
+                  priority: WARNING
+          tags:
+            - tag: cloud
+              value: gcp
+{{- end }}

@@ -1,0 +1,86 @@
+{{- if and .Values.cloudIntegrations.azure.enabled .Values.cloudIntegrations.azure.exporters.azureMonitor.enabled }}
+{{/* Same dual-pipeline pattern as AWS: one exporter, scraped by both Prometheus and Zabbix. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "azure-monitor-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 4 }}
+    azure.workload.identity/use: "true"
+  annotations:
+    azure.workload.identity/client-id: {{ .Values.cloudIntegrations.azure.auth.clientId | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "azure-monitor-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 4 }}
+data:
+  config.yaml: |
+    subscriptions: {{ .Values.cloudIntegrations.azure.subscriptionIds | toJson }}
+    resourceTypes:
+      {{- range .Values.cloudIntegrations.azure.exporters.azureMonitor.resourceTypes }}
+      - type: {{ .type }}
+        metrics: {{ .metrics | toJson }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "azure-monitor-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 8 }}
+        azure.workload.identity/use: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9276"
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "azure-monitor-exporter") }}
+      containers:
+        - name: azure-monitor-exporter
+          # TODO: pin to your org's approved Azure Monitor Prometheus-exporter image/tag
+          # (see values-azure.yaml cloudIntegrations.azure.exporters.azureMonitor.image).
+          image: "{{ .Values.cloudIntegrations.azure.exporters.azureMonitor.image.repository }}:{{ .Values.cloudIntegrations.azure.exporters.azureMonitor.image.tag }}"
+          args: ["--config.file=/etc/azure-exporter/config.yaml"]
+          ports:
+            - name: metrics
+              containerPort: 9276
+          volumeMounts:
+            - name: config
+              mountPath: /etc/azure-exporter
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "azure-monitor-exporter") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-monitor-exporter
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 9276
+      targetPort: metrics
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "azure-monitor-exporter") | nindent 4 }}
+{{- end }}

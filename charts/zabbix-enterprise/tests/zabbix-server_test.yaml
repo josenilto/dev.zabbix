@@ -1,0 +1,76 @@
+suite: zabbix-server
+templates:
+  - zabbix-server/deployment.yaml
+  - zabbix-server/configmap.yaml    # deployment.yaml includes this sibling for its checksum/config annotation
+  - zabbix-server/service.yaml
+  - zabbix-server/poddisruptionbudget.yaml
+  - zabbix-server/pvc.yaml
+tests:
+  - it: renders nothing when zabbix.server.enabled is false
+    set:
+      zabbix.server.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the configured replica count
+    set:
+      zabbix.server.replicaCount: 3
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: sets ZBX_HANODENAME only when HA clustering is enabled
+    set:
+      zabbix.server.haCluster: true
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ZBX_HANODENAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+
+  - it: omits ZBX_HANODENAME when HA clustering is disabled
+    set:
+      zabbix.server.haCluster: false
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ZBX_HANODENAME
+
+  - it: requires ReadWriteMany on the export PVC when replicaCount > 1
+    set:
+      zabbix.server.replicaCount: 2
+      zabbix.server.persistence.exportDir.enabled: true
+    template: zabbix-server/pvc.yaml
+    asserts:
+      - equal:
+          path: spec.accessModes[0]
+          value: ReadWriteMany
+
+  - it: enforces a non-root, read-only-root-filesystem container securityContext
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: creates a PodDisruptionBudget with the configured minAvailable
+    set:
+      zabbix.server.podDisruptionBudget.enabled: true
+      zabbix.server.podDisruptionBudget.minAvailable: 2
+    template: zabbix-server/poddisruptionbudget.yaml
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 2

@@ -1,0 +1,159 @@
+{{- if .Values.zabbix.server.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-server") | nindent 4 }}
+spec:
+  replicas: {{ .Values.zabbix.server.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-server") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/zabbix-server/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.serviceAccountName" . }}
+      securityContext:
+        {{- include "zabbix-enterprise.podSecurityContext" . | nindent 8 }}
+      {{- if eq .Values.zabbix.server.podAntiAffinity "hard" }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
+      {{- else if eq .Values.zabbix.server.podAntiAffinity "soft" }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+      {{- if .Values.zabbix.server.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-server") | nindent 14 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: zabbix-server
+          image: {{ include "zabbix-enterprise.image" (dict "root" $ "repository" .Values.zabbix.server.image.repository "tag" .Values.zabbix.server.image.tag) }}
+          imagePullPolicy: {{ .Values.zabbix.server.image.pullPolicy }}
+          securityContext:
+            {{- include "zabbix-enterprise.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: trapper
+              containerPort: 10051
+              protocol: TCP
+          env:
+            - name: DB_SERVER_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
+                  key: host
+            - name: MYSQL_DATABASE
+              value: {{ .Values.database.internal.mysql.auth.database | default .Values.database.external.database }}
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
+                  key: password
+            {{- if .Values.zabbix.server.haCluster }}
+            - name: ZBX_HANODENAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ZBX_NODEADDRESS
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            {{- end }}
+            - name: ZBX_STARTPOLLERS
+              value: {{ .Values.zabbix.server.pollers | quote }}
+            - name: ZBX_STARTHTTPPOLLERS
+              value: {{ .Values.zabbix.server.httpPollers | quote }}
+            - name: ZBX_STARTPROXYPOLLERS
+              value: {{ .Values.zabbix.server.proxyPollers | quote }}
+            - name: ZBX_CACHESIZE
+              value: {{ .Values.zabbix.server.startupCacheSize | quote }}
+            - name: ZBX_HISTORYCACHESIZE
+              value: {{ .Values.zabbix.server.historyCacheSize | quote }}
+            - name: ZBX_TRENDCACHESIZE
+              value: {{ .Values.zabbix.server.trendCacheSize | quote }}
+            - name: ZBX_VALUECACHESIZE
+              value: {{ .Values.zabbix.server.valueCacheSize | quote }}
+            - name: ZBX_TIMEOUT
+              value: "30"
+            {{- if .Values.cloudIntegrations.onprem.hypervisors.vmware.enabled }}
+            - name: ZBX_STARTVMWARECOLLECTORS
+              value: "10"
+            - name: ZBX_VMWAREFREQUENCY
+              value: {{ .Values.cloudIntegrations.onprem.hypervisors.vmware.pollingFrequency | quote }}
+            - name: ZBX_VMWARECACHESIZE
+              value: "256M"
+            {{- end }}
+            - name: TZ
+              value: {{ .Values.zabbix.timezone | quote }}
+          volumeMounts:
+            - name: conf-d
+              mountPath: /etc/zabbix/zabbix_server.conf.d
+              readOnly: true
+            {{- if .Values.zabbix.server.persistence.exportDir.enabled }}
+            - name: export-dir
+              mountPath: /var/lib/zabbix/export
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.zabbix.server.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: trapper
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: trapper
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: conf-d
+          configMap:
+            name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server") }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.zabbix.server.persistence.exportDir.enabled }}
+        - name: export-dir
+          persistentVolumeClaim:
+            claimName: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server-export") }}
+        {{- end }}
+{{- end }}

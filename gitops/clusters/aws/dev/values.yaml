@@ -1,0 +1,21 @@
+## Cluster-specific overrides layered last: values.yaml -> values-dev.yaml -> values-aws.yaml -> this file.
+## Only put things here that are genuinely specific to *this* cluster (name, domain,
+## region, storage class) - everything else belongs in values-dev.yaml / values-aws.yaml.
+global:
+  clusterName: eks-dev-use1
+  region: us-east-1
+  domain: zabbix-dev.aws.example.internal
+  storageClass: gp3
+
+zabbix:
+  frontend:
+    ingress:
+      hosts:
+        - host: zabbix-dev.aws.example.internal
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-dev
+          hosts:
+            - zabbix-dev.aws.example.internal

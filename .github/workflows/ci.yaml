@@ -1,0 +1,244 @@
+name: zabbix-enterprise CI
+
+on:
+  pull_request:
+    paths:
+      - "charts/zabbix-enterprise/**"
+      - ".github/workflows/ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "charts/zabbix-enterprise/**"
+      - ".github/workflows/ci.yaml"
+
+env:
+  CHART_PATH: charts/zabbix-enterprise
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: your-org/zabbix-helm
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (helm lint + yamllint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Add chart dependency repos
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+          helm repo add opencost https://opencost.github.io/opencost-helm-chart
+          helm repo update
+
+      - name: helm dependency update
+        run: helm dependency update "${{ env.CHART_PATH }}"
+
+      - name: helm lint (all env/cloud value combinations)
+        run: |
+          set -euo pipefail
+          for env in dev hml prd; do
+            for cloud in aws azure gcp oci onprem openshift; do
+              echo "::group::helm lint env=$env cloud=$cloud"
+              helm lint "${{ env.CHART_PATH }}" \
+                -f "${{ env.CHART_PATH }}/values.yaml" \
+                -f "${{ env.CHART_PATH }}/values-${env}.yaml" \
+                -f "${{ env.CHART_PATH }}/values-${cloud}.yaml"
+              echo "::endgroup::"
+            done
+          done
+
+      - name: yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: |
+            extends: default
+            rules:
+              line-length: disable
+              document-start: disable
+              truthy: disable
+
+  unit-test:
+    name: Unit test (helm-unittest)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.6.3
+
+      - name: helm dependency update
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+          helm repo add opencost https://opencost.github.io/opencost-helm-chart
+          helm repo update
+          helm dependency update "${{ env.CHART_PATH }}"
+
+      - name: Run helm unittest suite
+        run: helm unittest "${{ env.CHART_PATH }}"
+
+  kubeconform:
+    name: Validate rendered manifests (kubeconform)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: helm dependency update
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+          helm repo add opencost https://opencost.github.io/opencost-helm-chart
+          helm repo update
+          helm dependency update "${{ env.CHART_PATH }}"
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar -xz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Render + validate every env/cloud combination
+        run: |
+          set -euo pipefail
+          for env in dev hml prd; do
+            for cloud in aws azure gcp oci onprem openshift; do
+              echo "::group::kubeconform env=$env cloud=$cloud"
+              helm template zabbix-enterprise "${{ env.CHART_PATH }}" \
+                -f "${{ env.CHART_PATH }}/values.yaml" \
+                -f "${{ env.CHART_PATH }}/values-${env}.yaml" \
+                -f "${{ env.CHART_PATH }}/values-${cloud}.yaml" \
+                | kubeconform -strict -ignore-missing-schemas -summary \
+                    -kubernetes-version 1.29.0
+              echo "::endgroup::"
+            done
+          done
+
+  security-scan:
+    name: Security scan (Trivy config + Checkov)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy IaC/config scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: config
+          scan-ref: "${{ env.CHART_PATH }}"
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+
+      - name: Checkov scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: "${{ env.CHART_PATH }}"
+          framework: helm
+          soft_fail: true   # promote to hard-fail once the baseline is fully triaged
+
+  image-scan-sbom:
+    name: Image scan + SBOM (Trivy + Syft)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract image references from values*.yaml
+        id: images
+        run: |
+          set -euo pipefail
+          grep -rhoE '(repository|image): .*' "${{ env.CHART_PATH }}"/values*.yaml \
+            | awk '{print $2}' | sort -u > images.txt || true
+          echo "Collected candidate image repositories:"
+          cat images.txt
+
+      - name: Trivy image scan (Zabbix images)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: "zabbix/zabbix-server-mysql:7.0-ubuntu-latest"
+          severity: "HIGH,CRITICAL"
+          exit-code: "0"   # advisory in this reference repo; set to "1" to hard-fail once triaged
+
+      - name: Generate SBOM (Syft, CycloneDX)
+        uses: anchore/sbom-action@v0.17.0
+        with:
+          path: "${{ env.CHART_PATH }}"
+          format: cyclonedx-json
+          output-file: sbom-zabbix-enterprise.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-zabbix-enterprise
+          path: sbom-zabbix-enterprise.cdx.json
+
+  package-publish:
+    name: Package + publish to OCI registry
+    runs-on: ubuntu-latest
+    needs: [unit-test, kubeconform, security-scan, image-scan-sbom]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: helm dependency update
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+          helm repo add opencost https://opencost.github.io/opencost-helm-chart
+          helm repo update
+          helm dependency update "${{ env.CHART_PATH }}"
+
+      - name: helm package
+        run: helm package "${{ env.CHART_PATH }}" --destination dist/
+
+      - name: Cosign-sign and push chart to GHCR (OCI)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
+            -u "${{ github.actor }}" --password-stdin
+          CHART_PACKAGE=$(ls dist/*.tgz)
+          helm push "${CHART_PACKAGE}" "oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/charts"
+
+      - name: Argo CD picks up the new chart version
+        run: |
+          echo "No explicit deploy step here: bump the chart version referenced by"
+          echo "gitops/applications/zabbix-enterprise/applicationset.yaml (targetRevision)"
+          echo "or rely on Argo CD Image Updater / a follow-up PR - this is GitOps, the"
+          echo "cluster state changes only when Git changes, never by this pipeline pushing directly."

@@ -1,0 +1,95 @@
+{{- if and .Values.cloudIntegrations.aws.enabled .Values.cloudIntegrations.aws.exporters.cloudwatch.enabled }}
+{{/*
+Bridges AWS CloudWatch metrics into both pipelines shown in the architecture diagram:
+Prometheus scrapes this exporter directly (see values-aws.yaml additionalScrapeConfigs),
+and Zabbix polls the same /metrics endpoint via HTTP Agent items with "Prometheus pattern"
+preprocessing (see zabbix-template-ec2.yaml / zabbix-template-rds.yaml), so a single
+exporter deployment serves dashboards (Grafana/Prometheus) and alerting/ITSM (Zabbix)
+without double-collecting from the AWS API.
+Auth uses IRSA (IAM Roles for Service Accounts) - annotate the ServiceAccount with the
+target role ARN; no static AWS keys are stored in the cluster.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "aws-cloudwatch-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 4 }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ .Values.cloudIntegrations.aws.auth.roleArn | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "aws-cloudwatch-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 4 }}
+data:
+  config.yaml: |
+    region: {{ (first .Values.cloudIntegrations.aws.regions) | default "us-east-1" }}
+    metrics:
+      {{- range .Values.cloudIntegrations.aws.exporters.cloudwatch.metrics }}
+      - aws_namespace: {{ .namespace }}
+        aws_metric_name: {{ .metricNames | first }}
+        aws_dimensions: {{ .dimensions | toJson }}
+        aws_statistics: ["Average", "Maximum"]
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "aws-cloudwatch-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9106"
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "aws-cloudwatch-exporter") }}
+      containers:
+        - name: cloudwatch-exporter
+          # TODO: pin to your org's approved CloudWatch-exporter image/tag (see
+          # values-aws.yaml cloudIntegrations.aws.exporters.cloudwatch.image).
+          image: "{{ .Values.cloudIntegrations.aws.exporters.cloudwatch.image.repository }}:{{ .Values.cloudIntegrations.aws.exporters.cloudwatch.image.tag }}"
+          args: ["--config.file=/etc/cloudwatch-exporter/config.yaml"]
+          ports:
+            - name: metrics
+              containerPort: 9106
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudwatch-exporter
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "aws-cloudwatch-exporter") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudwatch-exporter
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 9106
+      targetPort: metrics
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "aws-cloudwatch-exporter") | nindent 4 }}
+{{- end }}

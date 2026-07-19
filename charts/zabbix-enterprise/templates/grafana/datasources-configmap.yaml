@@ -1,0 +1,75 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-grafana-datasources
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Zabbix
+        # Requires the community "alexanderzobnin-zabbix-app" plugin to be listed in
+        # grafana.plugins (values.grafana.plugins) so the datasource type resolves.
+        # Credentials are intentionally omitted here - Grafana's sidecar mounts this
+        # ConfigMap as-is, so do not add username/secureJsonData.password in plaintext.
+        # Instead provision a Grafana API-token-based service account (Zabbix >=6.4 REST
+        # token or a dedicated Grafana-reader user) via ExternalSecret and reference it
+        # through grafana.additionalDataSources in an environment-specific values overlay,
+        # which Helm renders through --set-file / secureJsonData at install time.
+        type: alexanderzobnin-zabbix-datasource
+        access: proxy
+        url: http://{{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-frontend") }}:{{ .Values.zabbix.frontend.service.port }}/api_jsonrpc.php
+        jsonData:
+          trends: true
+          trendsFrom: "7d"
+          trendsRange: "4d"
+        isDefault: false
+        editable: false
+
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://kps-kube-prometheus-stack-prometheus.{{ include "zabbix-enterprise.namespace" . }}.svc:9090
+        isDefault: true
+        jsonData:
+          timeInterval: 30s
+          httpMethod: POST
+        editable: false
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://{{ include "zabbix-enterprise.fullname" . }}-loki-gateway.{{ include "zabbix-enterprise.namespace" . }}.svc
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: 'trace_id=(\w+)'
+              name: TraceID
+              url: '${__value.raw}'
+        editable: false
+
+      - name: Tempo
+        type: tempo
+        access: proxy
+        uid: tempo
+        url: http://{{ include "zabbix-enterprise.fullname" . }}-tempo.{{ include "zabbix-enterprise.namespace" . }}.svc:3100
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+          serviceMap:
+            datasourceUid: prometheus
+        editable: false
+
+      - name: Alertmanager
+        type: alertmanager
+        access: proxy
+        url: http://kps-kube-prometheus-stack-alertmanager.{{ include "zabbix-enterprise.namespace" . }}.svc:9093
+        jsonData:
+          implementation: prometheus
+        editable: false
+{{- end }}

@@ -1,0 +1,45 @@
+## Cluster-specific overrides layered last: values.yaml -> values-prd.yaml -> values-aws.yaml -> this file.
+global:
+  clusterName: eks-prd-use1
+  region: us-east-1
+  domain: zabbix.aws.example.com
+  storageClass: gp3
+
+zabbix:
+  frontend:
+    ingress:
+      hosts:
+        - host: zabbix.aws.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-prd
+          hosts:
+            - zabbix.aws.example.com
+
+database:
+  external:
+    host: "zabbix-prd.cluster-xxxxxxxxxx.us-east-1.rds.amazonaws.com"
+
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: zabbix-enterprise-prd-loki-chunks
+        ruler: zabbix-enterprise-prd-loki-ruler
+        admin: zabbix-enterprise-prd-loki-admin
+      s3:
+        region: us-east-1
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        s3:
+          bucket: zabbix-enterprise-prd-tempo-traces
+          region: us-east-1
+
+velero:
+  backupStorageLocation:
+    bucket: zabbix-enterprise-prd-velero-backups

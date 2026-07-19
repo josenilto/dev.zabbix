@@ -1,0 +1,49 @@
+{{- if .Values.rbac.create }}
+# Read-only, cluster-scoped: lets Zabbix (via an external-check script or a small sidecar)
+# discover and report on Kubernetes objects for the section-5 inventory (nodes, pods,
+# deployments, statefulsets, daemonsets, jobs, cronjobs, services, ingress, PVs, storage
+# classes). No write verbs, no secrets access at cluster scope.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-readonly
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "services", "persistentvolumes", "persistentvolumeclaims", "namespaces", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-readonly
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "zabbix-enterprise.fullname" . }}-readonly
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zabbix-enterprise.serviceAccountName" . }}
+    namespace: {{ include "zabbix-enterprise.namespace" . }}
+{{- end }}

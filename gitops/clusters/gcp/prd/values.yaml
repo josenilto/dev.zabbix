@@ -1,0 +1,43 @@
+## Cluster-specific overrides layered last: values.yaml -> values-prd.yaml -> values-gcp.yaml -> this file.
+global:
+  clusterName: gke-prd-us-central1
+  region: us-central1
+  domain: zabbix.gcp.example.com
+  storageClass: premium-rwo
+
+zabbix:
+  frontend:
+    ingress:
+      hosts:
+        - host: zabbix.gcp.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-prd
+          hosts:
+            - zabbix.gcp.example.com
+
+database:
+  external:
+    host: "10.20.30.40"          # Cloud SQL private IP via a Cloud SQL Auth Proxy sidecar
+
+loki:
+  loki:
+    storage:
+      type: gcs
+      bucketNames:
+        chunks: zabbix-enterprise-prd-loki-chunks
+        ruler: zabbix-enterprise-prd-loki-ruler
+        admin: zabbix-enterprise-prd-loki-admin
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: gcs
+        gcs:
+          bucket_name: zabbix-enterprise-prd-tempo-traces
+
+velero:
+  provider: gcp

@@ -1,0 +1,24 @@
+## Cluster-specific overrides layered last: values.yaml -> values-prd.yaml -> values-openshift.yaml -> this file.
+global:
+  clusterName: ocp-prd-dc1
+  region: dc1
+  domain: apps.ocp-prd.example.com
+  storageClass: ocs-storagecluster-ceph-rbd
+
+zabbix:
+  frontend:
+    ingress:
+      className: openshift-default
+      hosts:
+        - host: zabbix.apps.ocp-prd.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-prd
+          hosts:
+            - zabbix.apps.ocp-prd.example.com
+
+database:
+  external:
+    host: "postgresql.zabbix-enterprise-db.svc.cluster.local"

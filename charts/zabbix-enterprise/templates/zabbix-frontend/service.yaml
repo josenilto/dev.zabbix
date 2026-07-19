@@ -1,0 +1,18 @@
+{{- if .Values.zabbix.frontend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-frontend") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 4 }}
+spec:
+  type: {{ .Values.zabbix.frontend.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.zabbix.frontend.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 4 }}
+{{- end }}

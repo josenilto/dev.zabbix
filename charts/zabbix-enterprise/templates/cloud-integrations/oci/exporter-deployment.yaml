@@ -1,0 +1,75 @@
+{{- if and .Values.cloudIntegrations.oci.enabled .Values.cloudIntegrations.oci.exporters.ociMetrics.enabled }}
+{{/* Same dual-pipeline pattern as AWS/Azure/GCP: one exporter, scraped by both Prometheus and Zabbix. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "oci-metrics-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "oci-metrics-exporter") | nindent 4 }}
+data:
+  config.yaml: |
+    compartments: {{ .Values.cloudIntegrations.oci.compartmentIds | toJson }}
+    namespaces:
+      {{- range .Values.cloudIntegrations.oci.exporters.ociMetrics.namespaces }}
+      - namespace: {{ .namespace }}
+        metrics: {{ .metrics | toJson }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "oci-metrics-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "oci-metrics-exporter") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "oci-metrics-exporter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "oci-metrics-exporter") | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9107"
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.serviceAccountName" . }}
+      containers:
+        - name: oci-metrics-exporter
+          # TODO: pin to your org's approved OCI Monitoring Prometheus-compatible exporter
+          # image/tag (see values-oci.yaml cloudIntegrations.oci.exporters.ociMetrics.image).
+          # Auth via OCI Instance/Resource Principal - no API key files mounted.
+          image: "{{ .Values.cloudIntegrations.oci.exporters.ociMetrics.image.repository }}:{{ .Values.cloudIntegrations.oci.exporters.ociMetrics.image.tag }}"
+          args: ["--config.file=/etc/oci-exporter/config.yaml"]
+          ports:
+            - name: metrics
+              containerPort: 9107
+          volumeMounts:
+            - name: config
+              mountPath: /etc/oci-exporter
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "oci-metrics-exporter") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oci-metrics-exporter
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "oci-metrics-exporter") | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 9107
+      targetPort: metrics
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "oci-metrics-exporter") | nindent 4 }}
+{{- end }}

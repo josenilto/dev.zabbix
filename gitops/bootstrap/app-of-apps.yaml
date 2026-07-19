@@ -1,0 +1,32 @@
+## Bootstrap entrypoint: apply this once per management cluster running Argo CD
+## (kubectl apply -f gitops/bootstrap/app-of-apps.yaml) to have Argo CD manage itself
+## going forward - it points back at gitops/applications and gitops/infrastructure, so
+## every subsequent AppProject/ApplicationSet/infra change ships purely through Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: zabbix-enterprise-bootstrap
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/your-org/zabbix-helm.git"
+    targetRevision: main
+    path: gitops
+    directory:
+      recurse: true
+      include: "{applications/**/*.yaml,infrastructure/**/*.yaml}"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

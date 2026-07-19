@@ -1,0 +1,61 @@
+suite: zabbix-frontend
+templates:
+  - zabbix-frontend/deployment.yaml
+  - zabbix-frontend/configmap.yaml    # deployment.yaml includes this sibling for its checksum/config annotation
+  - zabbix-frontend/hpa.yaml
+  - zabbix-frontend/ingress.yaml
+tests:
+  - it: renders nothing when zabbix.frontend.enabled is false
+    set:
+      zabbix.frontend.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: omits spec.replicas when autoscaling is enabled (HPA owns replica count)
+    set:
+      zabbix.frontend.autoscaling.enabled: true
+    template: zabbix-frontend/deployment.yaml
+    asserts:
+      - isNull:
+          path: spec.replicas
+
+  - it: sets spec.replicas when autoscaling is disabled
+    set:
+      zabbix.frontend.autoscaling.enabled: false
+      zabbix.frontend.replicaCount: 2
+    template: zabbix-frontend/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: creates an HPA only when autoscaling is enabled
+    set:
+      zabbix.frontend.autoscaling.enabled: false
+    template: zabbix-frontend/hpa.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render an Ingress when disabled
+    set:
+      zabbix.frontend.ingress.enabled: false
+    template: zabbix-frontend/ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the configured ingress host
+    set:
+      zabbix.frontend.ingress.enabled: true
+      zabbix.frontend.ingress.hosts:
+        - host: zabbix.test.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    template: zabbix-frontend/ingress.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: zabbix.test.example.com

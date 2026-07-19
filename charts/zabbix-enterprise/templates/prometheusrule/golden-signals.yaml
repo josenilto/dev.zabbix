@@ -1,0 +1,84 @@
+{{- if index .Values "kube-prometheus-stack" "enabled" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-golden-signals
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    release: kps
+spec:
+  groups:
+    - name: zabbix-enterprise.golden-signals
+      rules:
+        - alert: ZabbixServerDown
+          expr: up{job=~".*zabbix-server.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            cloud: {{ .Values.global.cloud }}
+            environment: {{ .Values.global.environment }}
+          annotations:
+            summary: "Zabbix Server target down ({{ "{{" }} $labels.instance {{ "}}" }})"
+            description: "No successful scrape from the Zabbix Server exporter for 2 minutes."
+        - alert: ZabbixServerHAClusterDegradedNodes
+          expr: count(up{job=~".*zabbix-server.*"} == 1) < {{ .Values.zabbix.server.replicaCount }}
+          for: 5m
+          labels:
+            severity: warning
+            cloud: {{ .Values.global.cloud }}
+            environment: {{ .Values.global.environment }}
+          annotations:
+            summary: "Zabbix Server HA cluster running below configured node count"
+            description: "Fewer than {{ .Values.zabbix.server.replicaCount }} Zabbix Server HA nodes are reporting healthy."
+        - alert: ZabbixProxyBufferGrowing
+          expr: increase(zabbix_proxy_history_items_unsent[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+            cloud: {{ .Values.global.cloud }}
+            environment: {{ .Values.global.environment }}
+          annotations:
+            summary: "Zabbix Proxy buffering unsent history (possible link/central outage)"
+            description: "Store-and-forward buffer on {{ "{{" }} $labels.instance {{ "}}" }} has been growing for 15 minutes; confirm connectivity to Zabbix Server."
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_requests_total[5m])) by (service)
+            > {{ .Values.slo.defaults.errorRateThreshold }}
+          for: 10m
+          labels:
+            severity: critical
+            cloud: {{ .Values.global.cloud }}
+            environment: {{ .Values.global.environment }}
+          annotations:
+            summary: "Error rate above SLO threshold for {{ "{{" }} $labels.service {{ "}}" }}"
+            description: "5xx error ratio has exceeded {{ .Values.slo.defaults.errorRateThreshold }} for 10 minutes."
+        - alert: HighLatencyP95
+          expr: |
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+            > ({{ .Values.slo.defaults.latencyP95Ms }} / 1000)
+          for: 10m
+          labels:
+            severity: warning
+            cloud: {{ .Values.global.cloud }}
+            environment: {{ .Values.global.environment }}
+          annotations:
+            summary: "P95 latency above SLO threshold for {{ "{{" }} $labels.service {{ "}}" }}"
+            description: "P95 latency has exceeded {{ .Values.slo.defaults.latencyP95Ms }}ms for 10 minutes."
+        - alert: SaturationCPUThrottling
+          expr: |
+            sum(rate(container_cpu_cfs_throttled_periods_total[5m])) by (pod)
+            /
+            sum(rate(container_cpu_cfs_periods_total[5m])) by (pod)
+            > 0.25
+          for: 15m
+          labels:
+            severity: warning
+            cloud: {{ .Values.global.cloud }}
+            environment: {{ .Values.global.environment }}
+          annotations:
+            summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is CPU-throttled"
+            description: "More than 25% of CPU periods have been throttled for 15 minutes - review resource requests/limits."
+{{- end }}

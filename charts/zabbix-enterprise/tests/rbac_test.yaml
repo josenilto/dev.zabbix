@@ -1,0 +1,49 @@
+suite: rbac
+templates:
+  - rbac/serviceaccount.yaml
+  - rbac/role.yaml
+  - rbac/clusterrole.yaml
+tests:
+  - it: creates a ServiceAccount named after the release by default
+    set:
+      rbac.create: true
+    template: rbac/serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+
+  - it: skips all RBAC objects when rbac.create is false
+    set:
+      rbac.create: false
+    templates:
+      - rbac/serviceaccount.yaml
+      - rbac/role.yaml
+      - rbac/clusterrole.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: grants the cluster-scoped Role only get/list/watch on configmaps and secrets, never write
+    template: rbac/role.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: rules[0].verbs
+          value: ["get", "list", "watch"]
+
+  - it: the cluster-wide read-only ClusterRole never grants a write verb
+    template: rbac/clusterrole.yaml
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules[0].verbs
+          content: create
+      - notContains:
+          path: rules[0].verbs
+          content: delete
+      - notContains:
+          path: rules[0].verbs
+          content: update
+      - notContains:
+          path: rules[0].verbs
+          content: patch

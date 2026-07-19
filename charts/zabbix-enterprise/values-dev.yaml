@@ -1,0 +1,75 @@
+## Overrides for the dev environment. Layer: values.yaml -> values-dev.yaml -> values-<cloud>.yaml
+global:
+  environment: dev
+
+zabbix:
+  server:
+    replicaCount: 1
+    haCluster: false
+    podAntiAffinity: none
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: 1, memory: 2Gi }
+  frontend:
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+  proxy:
+    ha:
+      enabled: false
+      replicaCount: 1
+
+database:
+  internal:
+    mysql:
+      enabled: true
+      primary:
+        persistence:
+          size: 10Gi
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      replicas: 1
+      retention: 7d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests: { storage: 20Gi }
+  alertmanager:
+    alertmanagerSpec:
+      replicas: 1
+
+loki:
+  deploymentMode: SingleBinary
+  singleBinary:
+    replicas: 1
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
+
+tempo:
+  replicas: 1
+
+grafana:
+  replicas: 1
+  persistence:
+    size: 5Gi
+
+alerting:
+  receivers:
+    slack:
+      enabled: true
+    pagerduty:
+      enabled: false
+
+velero:
+  enabled: false
+
+finops:
+  opencost:
+    enabled: false

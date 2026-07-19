@@ -1,0 +1,552 @@
+## zabbix-enterprise — base values (safe defaults, no cloud/env assumptions)
+## Layering order applied in GitOps (later overrides earlier):
+##   values.yaml -> values-<env>.yaml -> values-<cloud>.yaml -> gitops/clusters/<cloud>/<env>/values.yaml
+
+global:
+  environment: dev
+  cloud: onprem            # aws | azure | gcp | oci | onprem | openshift
+  region: local
+  clusterName: local-cluster
+  domain: zabbix.example.internal
+  imageRegistry: ""         # e.g. registry.example.com/mirror - set to pull through an internal mirror
+  imagePullSecrets: []
+  storageClass: ""          # "" = cluster default StorageClass
+  # Extra labels merged onto every object (in addition to the standard set the
+  # "zabbix-enterprise.labels" helper already applies - app.kubernetes.io/part-of is
+  # already covered there, don't repeat it here).
+  labels: {}
+  podSecurityStandard: baseline   # privileged | baseline | restricted
+  networkPolicy:
+    enabled: true
+
+# ==============================================================================
+# ZABBIX CORE (custom-built templates in templates/zabbix-*)
+# ==============================================================================
+zabbix:
+  timezone: "UTC"
+
+  server:
+    enabled: true
+    replicaCount: 2                 # Zabbix Server native HA cluster (>= 6.4, HANodeName auto-derived)
+    haCluster: true
+    image:
+      repository: zabbix/zabbix-server-mysql
+      tag: "7.0-ubuntu-latest"
+      pullPolicy: IfNotPresent
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits: { cpu: 2, memory: 4Gi }
+    startupCacheSize: 128M
+    cacheSize: 256M
+    historyCacheSize: 256M
+    trendCacheSize: 128M
+    valueCacheSize: 512M
+    pollers: 20
+    httpPollers: 10
+    proxyPollers: 5
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    podAntiAffinity: hard           # hard | soft | none
+    topologySpreadConstraints: true
+    service:
+      type: ClusterIP
+      trapperPort: 10051
+    persistence:
+      exportDir:
+        enabled: true
+        size: 10Gi
+
+  frontend:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: zabbix/zabbix-web-nginx-mysql
+      tag: "7.0-ubuntu-latest"
+      pullPolicy: IfNotPresent
+    resources:
+      requests: { cpu: 200m, memory: 256Mi }
+      limits: { cpu: 1, memory: 1Gi }
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    service:
+      type: ClusterIP
+      port: 8080
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      hosts:
+        - host: zabbix.example.internal
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls
+          hosts:
+            - zabbix.example.internal
+    sso:
+      saml:
+        enabled: false
+      oidc:
+        enabled: false
+        issuer: ""
+        clientIdSecretRef: ""
+
+  agent2:
+    enabled: true
+    daemonset: true                 # one agent per node (bare metal / VM node-level facts)
+    image:
+      repository: zabbix/zabbix-agent2
+      tag: "7.0-ubuntu-latest"
+      pullPolicy: IfNotPresent
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 250m, memory: 256Mi }
+    hostRootMount: true
+    plugins:
+      docker: true
+      systemd: true
+      vmware: false                 # enable on the proxy handling the VMware hypervisor layer instead
+
+  proxy:
+    enabled: true
+    mode: active                    # active | passive
+    replicaCount: 1
+    image:
+      repository: zabbix/zabbix-proxy-sqlite3
+      tag: "7.0-ubuntu-latest"
+      pullPolicy: IfNotPresent
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: 1, memory: 2Gi }
+    persistence:
+      enabled: true
+      size: 20Gi
+    buffering:
+      offlineBuffer: 720            # hours of store-and-forward when central server is unreachable
+      bufferSize: 100
+    ha:
+      enabled: true
+      replicaCount: 2
+    # One logical proxy per cloud/region/datacenter/cluster, see values-<cloud>.yaml
+    instances: []
+
+database:
+  internal:
+    mysql:
+      enabled: true                 # dev/hml convenience; disable for prd in favor of a managed DB
+      auth:
+        database: zabbix
+        existingSecret: zabbix-db-credentials
+      primary:
+        persistence:
+          size: 50Gi
+    postgresql:
+      enabled: false
+  external:
+    enabled: false                  # set true + fill in for RDS/Azure DB/Cloud SQL/Autonomous DB
+    engine: mysql                   # mysql | postgresql
+    host: ""
+    port: 3306
+    database: zabbix
+    existingSecretName: zabbix-db-external-credentials
+    sslMode: require
+
+rbac:
+  create: true
+  serviceAccountName: zabbix-enterprise
+
+networkPolicy:
+  defaultDeny: true
+  allowFromNamespaces:
+    - monitoring
+    - ingress-nginx
+
+security:
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1997
+    fsGroup: 1997
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  admissionPolicies:
+    kyverno:
+      enabled: false                # enable at the infra layer (see gitops/infrastructure/policies)
+  imageScanning:
+    trivy:
+      enabled: true
+  sbom:
+    enabled: true
+
+externalSecrets:
+  enabled: false                    # dependency toggle; typically installed once per cluster at infra layer
+  vault:
+    enabled: true
+    address: https://vault.example.internal:8200
+    authMethod: kubernetes
+    kubernetesRole: zabbix-enterprise
+    kvMountPath: secret
+    refreshInterval: 1h
+  sealedSecrets:
+    enabled: false                  # alternative to Vault for simpler environments
+
+# ==============================================================================
+# METRICS
+# ==============================================================================
+kube-prometheus-stack:
+  enabled: true
+  fullnameOverride: kps
+  grafana:
+    enabled: false                  # we bring our own grafana/grafana below for custom dashboards/datasources
+  alertmanager:
+    enabled: true
+    alertmanagerSpec:
+      replicas: 3
+      # Empty selectors = pick up AlertmanagerConfig CRs from every namespace with any
+      # labels, so templates/prometheusrule/alertmanager-config.yaml is honored
+      # regardless of which namespace this chart is installed into relative to kps.
+      alertmanagerConfigSelector: {}
+      alertmanagerConfigNamespaceSelector: {}
+      storage:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests: { storage: 5Gi }
+  prometheus:
+    prometheusSpec:
+      replicas: 2
+      retention: 30d
+      podAntiAffinity: hard
+      resources:
+        requests: { cpu: 500m, memory: 2Gi }
+        limits: { cpu: 2, memory: 8Gi }
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests: { storage: 100Gi }
+      additionalScrapeConfigs: []    # populated per-cloud (cloudwatch/azure/gcp/oci exporters)
+  kube-state-metrics:
+    enabled: true
+  prometheus-node-exporter:
+    enabled: true
+
+# ==============================================================================
+# LOGS
+# ==============================================================================
+loki:
+  enabled: true
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 3
+    storage:
+      type: s3                      # s3 | gcs | azure | filesystem (overridden per cloud)
+      # Required regardless of backend type; real bucket/container names come from the
+      # gitops/clusters/<cloud>/<env>/values.yaml overlay - these are placeholders so the
+      # chart renders out of the box.
+      bucketNames:
+        chunks: zabbix-enterprise-loki-chunks
+        ruler: zabbix-enterprise-loki-ruler
+        admin: zabbix-enterprise-loki-admin
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: s3
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+  deploymentMode: SimpleScalable
+  write:
+    replicas: 3
+  read:
+    replicas: 3
+  backend:
+    replicas: 3
+
+# ==============================================================================
+# TRACES
+# ==============================================================================
+tempo:
+  enabled: true
+  tempo:
+    storage:
+      trace:
+        backend: s3                 # overridden per cloud
+  replicas: 2
+
+# ==============================================================================
+# UNIFIED AGENT (Grafana Alloy) - see templates/alloy for the pipeline config
+# ==============================================================================
+alloy:
+  enabled: true
+  alloy:
+    clustering:
+      enabled: true
+    configMap:
+      create: false
+      # Must match {{ include "zabbix-enterprise.fullname" . }}-alloy-config from
+      # templates/alloy/alloy-config-configmap.yaml. fullname ignores Release.Name (see
+      # _helpers.tpl), so this only needs overriding if nameOverride/fullnameOverride is set.
+      name: zabbix-enterprise-alloy-config
+      key: config.alloy
+  controller:
+    type: daemonset
+
+# ==============================================================================
+# OPENTELEMETRY COLLECTOR - see templates/otel for the pipeline config
+# ==============================================================================
+opentelemetry-collector:
+  enabled: true
+  mode: deployment
+  replicaCount: 2
+  image:
+    # -contrib (not core otelcol) because the pipeline below uses contrib-only
+    # components: jaeger/zipkin receivers, k8sattributes processor.
+    repository: otel/opentelemetry-collector-contrib
+    tag: ""   # defaults to the chart's appVersion
+  presets:
+    kubernetesAttributes:
+      enabled: true
+    clusterMetrics:
+      enabled: true
+  ports:
+    otlp:
+      enabled: true
+    otlp-http:
+      enabled: true
+    jaeger-compact:
+      enabled: true
+    jaeger-grpc:
+      enabled: true
+    zipkin:
+      enabled: true
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      jaeger:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:14250
+          thrift_compact:
+            endpoint: 0.0.0.0:6831
+      zipkin:
+        endpoint: 0.0.0.0:9411
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: otel-collector-self
+              scrape_interval: 30s
+              static_configs:
+                - targets: ["0.0.0.0:8888"]
+    processors:
+      batch: {}
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      k8sattributes: {}
+      resource:
+        attributes:
+          - key: cloud.provider
+            value: ${env:ZBX_CLOUD}
+            action: upsert
+          - key: deployment.environment
+            value: ${env:ZBX_ENVIRONMENT}
+            action: upsert
+    exporters:
+      otlp/tempo:
+        endpoint: zabbix-enterprise-tempo:4317
+        tls:
+          insecure: true
+      prometheusremotewrite:
+        endpoint: http://kps-kube-prometheus-stack-prometheus:9090/api/v1/write
+      loki:
+        endpoint: http://zabbix-enterprise-loki-gateway/loki/api/v1/push
+      debug:
+        verbosity: basic
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [otlp/tempo, debug]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [prometheusremotewrite, debug]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [loki, debug]
+  extraEnvs:
+    # NOTE: values.yaml is static data, not a Helm template - these are plain literals
+    # that must be kept in sync with global.cloud/global.environment in each overlay
+    # (values-<cloud>.yaml / values-<env>.yaml), they cannot reference .Values here.
+    - name: ZBX_CLOUD
+      value: "onprem"
+    - name: ZBX_ENVIRONMENT
+      value: "dev"
+
+# ==============================================================================
+# GRAFANA
+# ==============================================================================
+grafana:
+  enabled: true
+  replicas: 2
+  image:
+    repository: grafana/grafana-enterprise
+    tag: "11.3.0"
+  plugins:
+    - alexanderzobnin-zabbix-app
+  persistence:
+    enabled: true
+    size: 10Gi
+  admin:
+    existingSecret: grafana-admin-credentials
+  grafana.ini:
+    server:
+      root_url: "https://grafana.example.internal"
+    auth.generic_oauth:
+      enabled: false
+    auth.saml:
+      enabled: false
+    users:
+      auto_assign_org_role: Viewer
+  sidecar:
+    datasources:
+      enabled: true
+      label: grafana_datasource
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+
+# ==============================================================================
+# ALERTING / INCIDENT MANAGEMENT
+# ==============================================================================
+alerting:
+  route:
+    groupBy: ["cloud", "cluster", "severity", "alertname"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+  receivers:
+    slack:
+      enabled: false
+      webhookSecretRef: alertmanager-slack-webhook
+      channel: "#noc-alerts"
+    msteams:
+      enabled: false
+      webhookSecretRef: alertmanager-msteams-webhook
+    pagerduty:
+      enabled: false
+      integrationKeySecretRef: alertmanager-pagerduty-key
+    opsgenie:
+      enabled: false
+      apiKeySecretRef: alertmanager-opsgenie-key
+    email:
+      enabled: false
+      smtpSecretRef: alertmanager-smtp
+  maintenanceWindows: []
+
+# ==============================================================================
+# SLOs (consumed by templates/prometheusrule)
+# ==============================================================================
+slo:
+  defaults:
+    availability: "99.95"
+    latencyP95Ms: 500
+    errorRateThreshold: "0.01"
+  services: []
+  # Example entry (populate per-app in gitops overlays):
+  # - name: zabbix-frontend
+  #   availability: "99.9"
+  #   latencyP95Ms: 800
+  #   errorRateThreshold: "0.02"
+
+# ==============================================================================
+# FINOPS
+# ==============================================================================
+finops:
+  opencost:
+    enabled: false
+  costAllocation:
+    labels: ["cloud", "environment", "team", "app"]
+
+# ==============================================================================
+# DISASTER RECOVERY
+# ==============================================================================
+velero:
+  enabled: false                    # typically installed once per cluster at infra layer
+  provider: aws                     # aws | azure | gcp
+  backupStorageLocation:
+    bucket: ""
+  schedules:
+    daily:
+      schedule: "0 2 * * *"
+      ttl: "720h"
+
+# ==============================================================================
+# MULTI-CLOUD INTEGRATIONS (structure only here; toggles filled per values-<cloud>.yaml)
+# ==============================================================================
+## Full nested skeleton kept here even for disabled clouds, so templates can safely
+## reference deep paths (e.g. cloudIntegrations.onprem.hypervisors.vmware.enabled)
+## regardless of which single values-<cloud>.yaml overlay is loaded - overlays should
+## only flip these values, never introduce a brand-new nested key of their own.
+cloudIntegrations:
+  aws:
+    enabled: false
+    exporters:
+      cloudwatch:
+        enabled: false
+  azure:
+    enabled: false
+    exporters:
+      azureMonitor:
+        enabled: false
+  gcp:
+    enabled: false
+    exporters:
+      stackdriver:
+        enabled: false
+  oci:
+    enabled: false
+    exporters:
+      ociMetrics:
+        enabled: false
+  onprem:
+    enabled: false
+    hypervisors:
+      vmware:
+        enabled: false
+      hyperv:
+        enabled: false
+      kvm:
+        enabled: false
+    network:
+      snmpDiscovery:
+        enabled: false

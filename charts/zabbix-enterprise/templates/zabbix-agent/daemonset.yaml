@@ -1,0 +1,104 @@
+{{- if and .Values.zabbix.agent2.enabled .Values.zabbix.agent2.daemonset }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-agent") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-agent") | nindent 4 }}
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-agent") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-agent") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/zabbix-agent/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.serviceAccountName" . }}
+      hostPID: true
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: zabbix-agent2
+          image: {{ include "zabbix-enterprise.image" (dict "root" $ "repository" .Values.zabbix.agent2.image.repository "tag" .Values.zabbix.agent2.image.tag) }}
+          imagePullPolicy: {{ .Values.zabbix.agent2.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["SYS_PTRACE"]     # required for process/host-level checks on some kernels
+          ports:
+            - name: agent
+              containerPort: 10050
+              protocol: TCP
+          env:
+            - name: ZBX_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: ZBX_SERVER_HOST
+              value: "0.0.0.0/0"
+            - name: ZBX_ACTIVE_ALLOW
+              value: "true"
+            - name: ZBX_ACTIVESERVERS
+              value: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-server-headless") }}
+            - name: ZBX_ENABLEPERSISTENTBUFFER
+              value: "1"
+            - name: ZBX_DEBUGLEVEL
+              value: "3"
+            - name: TZ
+              value: {{ .Values.zabbix.timezone | quote }}
+          {{- if .Values.zabbix.agent2.hostRootMount }}
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: conf-d
+              mountPath: /etc/zabbix/zabbix_agent2.d/plugins.d
+              readOnly: true
+          {{- else }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: conf-d
+              mountPath: /etc/zabbix/zabbix_agent2.d/plugins.d
+              readOnly: true
+          {{- end }}
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 256Mi }
+          livenessProbe:
+            tcpSocket:
+              port: agent
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        {{- if .Values.zabbix.agent2.hostRootMount }}
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: conf-d
+          configMap:
+            name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-agent") }}
+{{- end }}

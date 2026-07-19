@@ -1,0 +1,72 @@
+## Overrides for the homologation/staging environment.
+global:
+  environment: hml
+
+zabbix:
+  server:
+    replicaCount: 2
+    haCluster: true
+    podAntiAffinity: soft
+  frontend:
+    replicaCount: 2
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+  proxy:
+    ha:
+      enabled: true
+      replicaCount: 2
+
+database:
+  internal:
+    mysql:
+      enabled: true
+      primary:
+        persistence:
+          size: 30Gi
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      replicas: 2
+      retention: 15d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests: { storage: 50Gi }
+  alertmanager:
+    alertmanagerSpec:
+      replicas: 2
+
+loki:
+  deploymentMode: SimpleScalable
+  write:
+    replicas: 2
+  read:
+    replicas: 2
+  backend:
+    replicas: 2
+
+tempo:
+  replicas: 2
+
+grafana:
+  replicas: 2
+  persistence:
+    size: 10Gi
+
+alerting:
+  receivers:
+    slack:
+      enabled: true
+    pagerduty:
+      enabled: false
+
+velero:
+  enabled: true
+
+finops:
+  opencost:
+    enabled: true

@@ -1,0 +1,85 @@
+## On-premises overlay. Targets: Linux/Windows/VMware/Hyper-V/KVM/OpenStack/CloudStack/
+## Bare Metal/Storage/Network/Firewalls/Load Balancers/Databases/Middleware.
+## Worked examples shipped in templates/cloud-integrations/onprem: Linux (native agent2) + VMware.
+global:
+  cloud: onprem
+  storageClass: "local-path"        # or your on-prem CSI (Ceph/Longhorn/NetApp/PowerStore/etc.)
+
+zabbix:
+  proxy:
+    instances:
+      - name: proxy-dc-primary
+        mode: passive                 # passive proxies are common on-prem behind firewalled segments
+        datacenter: dc1
+      - name: proxy-dc-secondary
+        mode: passive
+        datacenter: dc2
+  agent2:
+    plugins:
+      vmware: true                    # Zabbix Server-native VMware collector; agent2 handles host-level facts
+
+database:
+  internal:
+    mysql:
+      enabled: true                   # no managed DB on-prem by default; run HA MySQL/Postgres in-cluster
+      primary:
+        persistence:
+          size: 100Gi
+  external:
+    enabled: false
+
+loki:
+  loki:
+    storage:
+      # The SimpleScalable deploymentMode (write/read/backend, used from hml up) requires
+      # an object storage backend - filesystem only works with deploymentMode:
+      # SingleBinary (see values-dev.yaml, which overrides both together). On-prem uses
+      # an S3-compatible store (MinIO/Ceph RGW) rather than a real cloud object store;
+      # real endpoint/credentials come from the gitops/clusters/onprem/<env>/values.yaml overlay.
+      type: s3
+      s3:
+        endpoint: "https://minio.example.internal"
+        s3forcepathstyle: true
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: local
+
+cloudIntegrations:
+  onprem:
+    enabled: true
+    hypervisors:
+      vmware:
+        enabled: true
+        vcenterUrl: "https://vcenter.example.internal/sdk"
+        credentialsSecretRef: vmware-vcenter-credentials
+        pollingFrequency: 60s
+      hyperv:
+        enabled: false
+      kvm:
+        enabled: false
+    network:
+      snmpDiscovery:
+        enabled: true
+        communitySecretRef: snmp-community
+        subnets: ["10.0.0.0/16"]
+    zabbixTemplates:
+      - linux-native            # ships with Zabbix out of the box (Zabbix agent active)
+      - vmware-hypervisor
+      - network-generic-snmp
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      additionalScrapeConfigs: []
+
+velero:
+  enabled: true
+  provider: aws                # MinIO/Ceph RGW via the S3-compatible Velero provider plugin
+
+networkPolicy:
+  allowFromNamespaces:
+    - monitoring
+    - ingress-nginx

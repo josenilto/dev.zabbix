@@ -1,0 +1,97 @@
+{{- if and .Values.cloudIntegrations.aws.enabled (has "ec2" .Values.cloudIntegrations.aws.zabbixTemplates) }}
+{{/*
+Worked example: Zabbix scrapes the same cloudwatch-exporter /metrics endpoint that
+Prometheus scrapes (see exporter-deployment.yaml), using an HTTP Agent discovery rule
+with "Prometheus pattern" preprocessing (PROMETHEUS_TO_JSON) to discover one EC2 instance
+per {#INSTANCEID}, then item/trigger prototypes with PROMETHEUS_PATTERN pull each
+instance's series out of the same scrape. This keeps a single collection path per cloud
+instead of a second AWS API integration just for Zabbix. Import via: Data collection ->
+Templates -> Import, or `zabbix_export`-compatible tooling in CI.
+LLD macros such as {#INSTANCEID} only resolve inside item/trigger *prototypes* tied to a
+discovery rule - do not copy these into standalone (non-prototype) items.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-aws-ec2
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  aws-ec2-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 7f3a1c2e4b5d4e6f8a9b0c1d2e3f4a5b
+          name: 'Cloud/AWS'
+      templates:
+        - uuid: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
+          template: 'AWS EC2 by HTTP'
+          name: 'AWS EC2 by HTTP'
+          description: 'Worked example: EC2 instance health via the cloudwatch-exporter bridge (zabbix-enterprise cloud-integrations/aws).'
+          groups:
+            - name: 'Cloud/AWS'
+          discovery_rules:
+            - uuid: 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a
+              name: 'EC2 instance discovery'
+              type: HTTP_AGENT
+              key: 'aws.ec2.instance.discovery'
+              delay: 1h
+              url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'aws_ec2_cpuutilization_average'
+              lld_macro_paths:
+                - lld_macro: '{#INSTANCEID}'
+                  path: '$.instance_id'
+              item_prototypes:
+                - uuid: 2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e
+                  name: 'EC2 {#INSTANCEID}: CPU utilization'
+                  type: HTTP_AGENT
+                  key: 'aws.ec2.cpu.utilization[{#INSTANCEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'aws_ec2_cpuutilization_average{instance_id="{#INSTANCEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: compute
+                - uuid: 3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f
+                  name: 'EC2 {#INSTANCEID}: status check failed'
+                  type: HTTP_AGENT
+                  key: 'aws.ec2.status_check_failed[{#INSTANCEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  url: 'http://cloudwatch-exporter.monitoring.svc:9106/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'aws_ec2_statuscheckfailed_average{instance_id="{#INSTANCEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: compute
+              trigger_prototypes:
+                - uuid: 5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+                  expression: 'last(/AWS EC2 by HTTP/aws.ec2.status_check_failed[{#INSTANCEID}])=1'
+                  name: 'EC2 instance {#INSTANCEID}: status check failed'
+                  priority: HIGH
+                - uuid: 6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c
+                  expression: 'min(/AWS EC2 by HTTP/aws.ec2.cpu.utilization[{#INSTANCEID}],10m)>90'
+                  name: 'EC2 instance {#INSTANCEID}: high CPU utilization'
+                  priority: WARNING
+          tags:
+            - tag: cloud
+              value: aws
+{{- end }}

@@ -1,0 +1,37 @@
+## Cluster-specific overrides layered last: values.yaml -> values-prd.yaml -> values-onprem.yaml -> this file.
+global:
+  clusterName: k8s-dc1-prd
+  region: dc1
+  domain: zabbix.example.com
+  storageClass: ceph-rbd
+
+zabbix:
+  frontend:
+    ingress:
+      hosts:
+        - host: zabbix.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-prd
+          hosts:
+            - zabbix.example.com
+
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: zabbix-enterprise-prd-loki-chunks
+        ruler: zabbix-enterprise-prd-loki-ruler
+        admin: zabbix-enterprise-prd-loki-admin
+      s3:
+        endpoint: "https://minio.dc1.example.internal"
+        s3forcepathstyle: true
+
+velero:
+  backupStorageLocation:
+    bucket: zabbix-enterprise-prd-velero-backups
+    config:
+      s3Url: "https://minio.dc1.example.internal"
+      s3ForcePathStyle: "true"

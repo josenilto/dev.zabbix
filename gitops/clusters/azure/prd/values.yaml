@@ -1,0 +1,46 @@
+## Cluster-specific overrides layered last: values.yaml -> values-prd.yaml -> values-azure.yaml -> this file.
+global:
+  clusterName: aks-prd-eastus
+  region: eastus
+  domain: zabbix.azure.example.com
+  storageClass: managed-csi-premium
+
+zabbix:
+  frontend:
+    ingress:
+      hosts:
+        - host: zabbix.azure.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: zabbix-frontend-tls-prd
+          hosts:
+            - zabbix.azure.example.com
+
+database:
+  external:
+    host: "zabbix-prd.mysql.database.azure.com"
+
+loki:
+  loki:
+    storage:
+      bucketNames:
+        chunks: loki-chunks
+        ruler: loki-ruler
+        admin: loki-admin
+      azure:
+        accountName: zabbixenterpriseprdlogs
+        useManagedIdentity: true
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: azure
+        azure:
+          container_name: zabbix-enterprise-prd-tempo-traces
+          storage_account_name: zabbixenterpriseprdtraces
+
+velero:
+  provider: azure

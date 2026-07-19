@@ -1,0 +1,14 @@
+{{- if and .Values.zabbix.frontend.enabled .Values.zabbix.frontend.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "zabbix-frontend") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.zabbix.frontend.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "zabbix-frontend") | nindent 6 }}
+{{- end }}

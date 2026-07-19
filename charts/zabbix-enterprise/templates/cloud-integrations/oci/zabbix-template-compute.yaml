@@ -1,0 +1,65 @@
+{{- if and .Values.cloudIntegrations.oci.enabled (has "compute" .Values.cloudIntegrations.oci.zabbixTemplates) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-oci-compute
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  oci-compute-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90
+          name: 'Cloud/OCI'
+      templates:
+        - uuid: 5e6f7a8b9c0d1e2f3a4b5c6d7e8f9001
+          template: 'OCI Compute by HTTP'
+          name: 'OCI Compute by HTTP'
+          description: 'Worked example: OCI Compute instance health via the oci-metrics-exporter bridge (zabbix-enterprise cloud-integrations/oci).'
+          groups:
+            - name: 'Cloud/OCI'
+          discovery_rules:
+            - uuid: 6f7a8b9c0d1e2f3a4b5c6d7e8f900112
+              name: 'OCI Compute instance discovery'
+              type: HTTP_AGENT
+              key: 'oci.compute.instance.discovery'
+              delay: 1h
+              url: 'http://oci-metrics-exporter.monitoring.svc:9107/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'oci_computeagent_cpuutilization_average'
+              lld_macro_paths:
+                - lld_macro: '{#INSTANCEID}'
+                  path: '$.resource_id'
+              item_prototypes:
+                - uuid: 7a8b9c0d1e2f3a4b5c6d7e8f90011223
+                  name: 'OCI Compute {#INSTANCEID}: CPU utilization'
+                  type: HTTP_AGENT
+                  key: 'oci.compute.cpu.utilization[{#INSTANCEID}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://oci-metrics-exporter.monitoring.svc:9107/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'oci_computeagent_cpuutilization_average{resource_id="{#INSTANCEID}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: compute
+              trigger_prototypes:
+                - uuid: 8b9c0d1e2f3a4b5c6d7e8f9001122334
+                  expression: 'min(/OCI Compute by HTTP/oci.compute.cpu.utilization[{#INSTANCEID}],10m)>90'
+                  name: 'OCI Compute {#INSTANCEID}: high CPU utilization'
+                  priority: WARNING
+          tags:
+            - tag: cloud
+              value: oci
+{{- end }}

@@ -1,0 +1,83 @@
+{{- if and .Values.cloudIntegrations.azure.enabled (has "azure-sql" .Values.cloudIntegrations.azure.zabbixTemplates) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-azure-sql
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  azure-sql-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e
+          name: 'Cloud/Azure'
+      templates:
+        - uuid: 9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d
+          template: 'Azure SQL Database by HTTP'
+          name: 'Azure SQL Database by HTTP'
+          description: 'Worked example: Azure SQL Database health via the azure-monitor-exporter bridge (zabbix-enterprise cloud-integrations/azure).'
+          groups:
+            - name: 'Cloud/Azure'
+          discovery_rules:
+            - uuid: 0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+              name: 'Azure SQL Database discovery'
+              type: HTTP_AGENT
+              key: 'azure.sql.database.discovery'
+              delay: 1h
+              url: 'http://azure-monitor-exporter.monitoring.svc:9276/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'azure_sql_cpu_percent_average'
+              lld_macro_paths:
+                - lld_macro: '{#DBNAME}'
+                  path: '$.resource_name'
+              item_prototypes:
+                - uuid: 1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f
+                  name: 'Azure SQL {#DBNAME}: CPU percent'
+                  type: HTTP_AGENT
+                  key: 'azure.sql.cpu.percent[{#DBNAME}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://azure-monitor-exporter.monitoring.svc:9276/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'azure_sql_cpu_percent_average{resource_name="{#DBNAME}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+                - uuid: 2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a
+                  name: 'Azure SQL {#DBNAME}: DTU consumption percent'
+                  type: HTTP_AGENT
+                  key: 'azure.sql.dtu.consumption[{#DBNAME}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://azure-monitor-exporter.monitoring.svc:9276/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'azure_sql_dtu_consumption_percent_average{resource_name="{#DBNAME}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: database
+              trigger_prototypes:
+                - uuid: 3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b
+                  expression: 'min(/Azure SQL Database by HTTP/azure.sql.dtu.consumption[{#DBNAME}],10m)>90'
+                  name: 'Azure SQL {#DBNAME}: high DTU consumption'
+                  priority: HIGH
+          tags:
+            - tag: cloud
+              value: azure
+{{- end }}

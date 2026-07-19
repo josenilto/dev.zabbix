@@ -1,0 +1,80 @@
+## Azure overlay. Targets: AKS + VMs/Azure SQL/PostgreSQL/MySQL/App Gateway/Load Balancer/
+## Functions/App Service/Storage Account/Event Hubs/Service Bus/Cosmos DB/Redis/VNet/Firewall.
+## Worked examples shipped in templates/cloud-integrations/azure: VM + Azure SQL.
+global:
+  cloud: azure
+
+zabbix:
+  proxy:
+    instances:
+      - name: proxy-azure-eastus
+        mode: active
+        region: eastus
+      - name: proxy-azure-westeurope
+        mode: active
+        region: westeurope
+
+database:
+  external:
+    enabled: true
+    engine: mysql                   # or postgresql - Azure Database for MySQL/PostgreSQL flexible server
+    port: 3306
+    sslMode: require
+    existingSecretName: zabbix-db-external-credentials
+
+loki:
+  loki:
+    storage:
+      type: azure
+      azure:
+        # container/account name via ExternalSecret -> Kubernetes Secret
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: azure
+
+cloudIntegrations:
+  azure:
+    enabled: true
+    tenantId: ""
+    subscriptionIds: []
+    auth:
+      mode: workload-identity        # Microsoft Entra Workload ID preferred over client secret
+      clientId: ""
+    exporters:
+      azureMonitor:
+        enabled: true
+        # TODO: pin to your org's approved Azure Monitor Prometheus-exporter image/tag
+        image:
+          repository: ""
+          tag: ""
+        scrapeInterval: 5m
+        resourceTypes:
+          - type: Microsoft.Compute/virtualMachines
+            metrics: ["Percentage CPU", "Available Memory Bytes", "Network In Total", "Network Out Total"]
+          - type: Microsoft.Sql/servers/databases
+            metrics: ["cpu_percent", "dtu_consumption_percent", "connection_failed", "deadlock"]
+          - type: Microsoft.Web/sites
+            metrics: ["Http5xx", "ResponseTime", "Requests"]
+    zabbixTemplates:
+      - virtual-machine
+      - azure-sql
+    eventIntegration:
+      eventGrid:
+        enabled: false              # forward Azure Service Health/Activity Log events to Zabbix
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      additionalScrapeConfigs:
+        - job_name: azure-monitor-exporter
+          static_configs:
+            - targets: ["azure-monitor-exporter.monitoring.svc:9276"]
+
+networkPolicy:
+  allowFromNamespaces:
+    - monitoring
+    - ingress-nginx
+    - kube-system

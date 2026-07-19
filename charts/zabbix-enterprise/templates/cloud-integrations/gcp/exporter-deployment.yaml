@@ -1,0 +1,84 @@
+{{- if and .Values.cloudIntegrations.gcp.enabled .Values.cloudIntegrations.gcp.exporters.stackdriver.enabled }}
+{{/* Same dual-pipeline pattern as AWS/Azure: one exporter, scraped by both Prometheus and Zabbix. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "gcp-stackdriver-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 4 }}
+  annotations:
+    iam.gke.io/gcp-service-account: {{ .Values.cloudIntegrations.gcp.auth.serviceAccountEmail | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "gcp-stackdriver-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 4 }}
+data:
+  config.yaml: |
+    projects: {{ .Values.cloudIntegrations.gcp.projectIds | toJson }}
+    monitoredResourceTypes:
+      {{- range .Values.cloudIntegrations.gcp.exporters.stackdriver.monitoredResourceTypes }}
+      - type: {{ .type }}
+        metrics: {{ .metrics | toJson }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "gcp-stackdriver-exporter") }}
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9255"
+    spec:
+      serviceAccountName: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "gcp-stackdriver-exporter") }}
+      containers:
+        - name: stackdriver-exporter
+          # TODO: pin to your org's approved stackdriver/cloud-monitoring exporter image/tag
+          # (see values-gcp.yaml cloudIntegrations.gcp.exporters.stackdriver.image).
+          image: "{{ .Values.cloudIntegrations.gcp.exporters.stackdriver.image.repository }}:{{ .Values.cloudIntegrations.gcp.exporters.stackdriver.image.tag }}"
+          args: ["--google.config.file=/etc/stackdriver-exporter/config.yaml"]
+          ports:
+            - name: metrics
+              containerPort: 9255
+          volumeMounts:
+            - name: config
+              mountPath: /etc/stackdriver-exporter
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zabbix-enterprise.componentName" (dict "root" $ "component" "gcp-stackdriver-exporter") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stackdriver-exporter
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 9255
+      targetPort: metrics
+  selector:
+    {{- include "zabbix-enterprise.selectorLabels" (dict "root" $ "component" "gcp-stackdriver-exporter") | nindent 4 }}
+{{- end }}

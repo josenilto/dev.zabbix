@@ -1,0 +1,87 @@
+## AWS overlay. Targets: EKS control plane + EC2/RDS/Aurora/Lambda/ECS/Fargate/ELB-ALB-NLB/
+## API Gateway/CloudFront/S3/EBS/EFS/VPC/NAT-TGW/Route53/SQS/SNS/MSK/ElastiCache/DynamoDB.
+## Worked examples shipped in templates/cloud-integrations/aws: EC2 + RDS.
+global:
+  cloud: aws
+
+zabbix:
+  proxy:
+    instances:
+      - name: proxy-aws-use1
+        mode: active
+        region: us-east-1
+      - name: proxy-aws-usw2
+        mode: active
+        region: us-west-2
+
+database:
+  external:
+    enabled: true
+    engine: mysql                   # Amazon RDS for MySQL, or Aurora MySQL-compatible
+    port: 3306
+    sslMode: require
+    existingSecretName: zabbix-db-external-credentials   # populated via ExternalSecret from Vault/Secrets Manager
+
+loki:
+  loki:
+    storage:
+      type: s3
+      s3:
+        region: us-east-1
+        # bucketnames/endpoint/access via ExternalSecret -> Kubernetes Secret, referenced by the loki subchart
+
+tempo:
+  tempo:
+    storage:
+      trace:
+        backend: s3
+
+cloudIntegrations:
+  aws:
+    enabled: true
+    accountIds: []                 # list target AWS account IDs (organization/multi-account)
+    regions: ["us-east-1", "us-west-2"]
+    auth:
+      mode: irsa                    # irsa (IAM Roles for Service Accounts) preferred over static keys
+      roleArn: "arn:aws:iam::ACCOUNT_ID:role/zabbix-enterprise-readonly"
+    exporters:
+      cloudwatch:
+        enabled: true
+        # TODO: pin to your org's approved CloudWatch-exporter image/tag
+        image:
+          repository: ""
+          tag: ""
+        scrapeInterval: 5m
+        metrics:
+          - namespace: AWS/EC2
+            metricNames: ["CPUUtilization", "StatusCheckFailed", "NetworkIn", "NetworkOut"]
+            dimensions: ["InstanceId"]
+          - namespace: AWS/RDS
+            metricNames: ["CPUUtilization", "FreeableMemory", "DatabaseConnections", "ReadLatency", "WriteLatency"]
+            dimensions: ["DBInstanceIdentifier"]
+          - namespace: AWS/Lambda
+            metricNames: ["Invocations", "Errors", "Duration", "Throttles"]
+            dimensions: ["FunctionName"]
+          - namespace: AWS/ApplicationELB
+            metricNames: ["RequestCount", "TargetResponseTime", "HTTPCode_Target_5XX_Count"]
+            dimensions: ["LoadBalancer"]
+    zabbixTemplates:
+      - ec2
+      - rds
+    eventIntegration:
+      eventBridge:
+        enabled: false             # forward AWS Health/CloudTrail events to Zabbix via SNS -> webhook
+
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      additionalScrapeConfigs:
+        - job_name: aws-cloudwatch-exporter
+          static_configs:
+            - targets: ["cloudwatch-exporter.monitoring.svc:9106"]
+
+networkPolicy:
+  allowFromNamespaces:
+    - monitoring
+    - ingress-nginx
+    - kube-system

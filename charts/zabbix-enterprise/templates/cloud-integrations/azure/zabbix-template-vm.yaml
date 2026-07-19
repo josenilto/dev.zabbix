@@ -1,0 +1,65 @@
+{{- if and .Values.cloudIntegrations.azure.enabled (has "virtual-machine" .Values.cloudIntegrations.azure.zabbixTemplates) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-zabbix-template-azure-vm
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+    zabbix-enterprise/template: "true"
+data:
+  azure-vm-template.yaml: |
+    zabbix_export:
+      version: '6.4'
+      template_groups:
+        - uuid: 4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e
+          name: 'Cloud/Azure'
+      templates:
+        - uuid: 5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f
+          template: 'Azure Virtual Machine by HTTP'
+          name: 'Azure Virtual Machine by HTTP'
+          description: 'Worked example: Azure VM health via the azure-monitor-exporter bridge (zabbix-enterprise cloud-integrations/azure).'
+          groups:
+            - name: 'Cloud/Azure'
+          discovery_rules:
+            - uuid: 6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a
+              name: 'Azure VM discovery'
+              type: HTTP_AGENT
+              key: 'azure.vm.instance.discovery'
+              delay: 1h
+              url: 'http://azure-monitor-exporter.monitoring.svc:9276/metrics'
+              preprocessing:
+                - type: PROMETHEUS_TO_JSON
+                  parameters:
+                    - 'azure_vm_percentage_cpu_average'
+              lld_macro_paths:
+                - lld_macro: '{#VMNAME}'
+                  path: '$.resource_name'
+              item_prototypes:
+                - uuid: 7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b
+                  name: 'Azure VM {#VMNAME}: CPU percentage'
+                  type: HTTP_AGENT
+                  key: 'azure.vm.cpu.percentage[{#VMNAME}]'
+                  delay: 5m
+                  history: 7d
+                  trends: 365d
+                  value_type: FLOAT
+                  units: '%'
+                  url: 'http://azure-monitor-exporter.monitoring.svc:9276/metrics'
+                  preprocessing:
+                    - type: PROMETHEUS_PATTERN
+                      parameters:
+                        - 'azure_vm_percentage_cpu_average{resource_name="{#VMNAME}"}'
+                      error_handler: DISCARD_VALUE
+                  tags:
+                    - tag: component
+                      value: compute
+              trigger_prototypes:
+                - uuid: 8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c
+                  expression: 'min(/Azure Virtual Machine by HTTP/azure.vm.cpu.percentage[{#VMNAME}],10m)>90'
+                  name: 'Azure VM {#VMNAME}: high CPU utilization'
+                  priority: WARNING
+          tags:
+            - tag: cloud
+              value: azure
+{{- end }}
