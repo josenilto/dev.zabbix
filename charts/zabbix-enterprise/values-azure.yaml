@@ -16,10 +16,14 @@ zabbix:
 
 database:
   external:
-    enabled: true
+    # NOTE: whether external mode is actually *active* is an environment decision (see
+    # values-dev/hml/prd.yaml database.external.enabled). host is a placeholder required
+    # by the chart to render/validate out of the box; the real value comes from
+    # gitops/clusters/azure/<env>/values.yaml.
     engine: mysql                   # or postgresql - Azure Database for MySQL/PostgreSQL flexible server
     port: 3306
     sslMode: require
+    host: "CHANGEME.mysql.database.azure.com"
     existingSecretName: zabbix-db-external-credentials
 
 loki:

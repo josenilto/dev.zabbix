@@ -7,7 +7,7 @@ description: >
   the OpenTelemetry Collector and Tempo for unified metrics/logs/traces observability
   across AWS, Azure, GCP, OCI, on-premises, Kubernetes and OpenShift.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "7.0"
 kubeVersion: ">=1.27.0-0"
 home: https://github.com/your-org/zabbix-helm

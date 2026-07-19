@@ -16,10 +16,15 @@ zabbix:
 
 database:
   external:
-    enabled: true
+    # NOTE: whether external mode is actually *active* is an environment decision (see
+    # values-dev/hml/prd.yaml database.external.enabled). host is a placeholder required
+    # by the chart to render/validate out of the box; the real value (typically a Cloud
+    # SQL Auth Proxy sidecar's localhost address, or the instance's private IP) comes
+    # from gitops/clusters/gcp/<env>/values.yaml.
     engine: mysql                   # or postgresql - Cloud SQL
     port: 3306
     sslMode: require
+    host: "127.0.0.1"
     existingSecretName: zabbix-db-external-credentials
 
 loki:

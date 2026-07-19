@@ -58,6 +58,8 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        {{- include "zabbix-enterprise.waitForDbInitContainer" (dict "root" $) | nindent 8 }}
       containers:
         - name: zabbix-server
           image: {{ include "zabbix-enterprise.image" (dict "root" $ "repository" .Values.zabbix.server.image.repository "tag" .Values.zabbix.server.image.tag) }}
@@ -69,11 +71,7 @@ spec:
               containerPort: 10051
               protocol: TCP
           env:
-            - name: DB_SERVER_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
-                  key: host
+            {{- include "zabbix-enterprise.dbServerHostEnv" (dict "root" $) | nindent 12 }}
             - name: MYSQL_DATABASE
               value: {{ .Values.database.internal.mysql.auth.database | default .Values.database.external.database }}
             - name: MYSQL_USER
@@ -134,15 +132,23 @@ spec:
               mountPath: /tmp
           resources:
             {{- toYaml .Values.zabbix.server.resources | nindent 12 }}
+          startupProbe:
+            # First boot can run a one-way DB schema migration (see docs/operations/upgrade.md)
+            # plus HA cluster node registration - both slower than the steady-state
+            # readiness/liveness timing below. Up to 10 minutes before Kubernetes gives
+            # up and restarts the container.
+            tcpSocket:
+              port: trapper
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 60
           readinessProbe:
             tcpSocket:
               port: trapper
-            initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
               port: trapper
-            initialDelaySeconds: 30
             periodSeconds: 20
             failureThreshold: 3
       volumes:

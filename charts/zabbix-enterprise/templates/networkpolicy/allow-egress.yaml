@@ -1,0 +1,35 @@
+{{- if .Values.global.networkPolicy.enabled }}
+{{/*
+default-deny.yaml locks every pod's egress down to DNS only. This policy re-opens the
+one kind of egress no NetworkPolicy can express more precisely: destinations reached by
+DNS name with unstable IPs (Vault, cloud provider APIs, alert webhook receivers) rather
+than by in-cluster Service. Applies to every pod in the namespace (podSelector: {}), not
+just this chart's own Zabbix components, since Grafana/the cloud exporters/Alertmanager
+all need the same kind of external reach. If you need tighter control than "by port,
+anywhere," add a network-layer egress firewall/proxy (cloud NAT gateway ACLs, an egress
+gateway) in front of the cluster - that boundary is outside what NetworkPolicy alone can
+express.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-allow-egress-external
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443    # cloud provider APIs, Vault (if fronted on 443), webhook receivers (Slack/PagerDuty/Teams), OIDC/SSO
+        - protocol: TCP
+          port: 8200   # Vault, when addressed directly on its default port instead of behind a 443 front door
+        - protocol: TCP
+          port: 587    # SMTP submission, for the Alertmanager email receiver
+{{- end }}

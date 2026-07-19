@@ -1,0 +1,28 @@
+{{- if and .Values.zabbix.proxy.enabled .Values.zabbix.proxy.ha.enabled }}
+{{- $root := . }}
+{{- $instances := .Values.zabbix.proxy.instances }}
+{{- if not $instances }}
+{{- $instances = list (dict "name" "default" "mode" .Values.zabbix.proxy.mode) }}
+{{- end }}
+{{- range $instances }}
+{{- $instance := . }}
+{{- $instanceName := printf "zabbix-proxy-%s" $instance.name }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "zabbix-enterprise.componentName" (dict "root" $root "component" $instanceName) }}
+  namespace: {{ include "zabbix-enterprise.namespace" $root }}
+  labels:
+    {{- include "zabbix-enterprise.componentLabels" (dict "root" $root "component" $instanceName) | nindent 4 }}
+    zabbix-enterprise/proxy-instance: {{ $instance.name }}
+spec:
+  # Only meaningful with ha.replicaCount > 1; require at least one replica of this
+  # specific proxy instance to stay up during voluntary disruptions (node drains,
+  # cluster upgrades) so its region/cloud/datacenter isn't left uncollected.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "zabbix-enterprise.selectorLabels" (dict "root" $root "component" $instanceName) | nindent 6 }}
+{{- end }}
+{{- end }}

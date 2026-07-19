@@ -1,7 +1,9 @@
 suite: networkpolicy
 templates:
   - networkpolicy/default-deny.yaml
+  - networkpolicy/allow-same-namespace.yaml
   - networkpolicy/allow-internal.yaml
+  - networkpolicy/allow-egress.yaml
 tests:
   - it: renders a default-deny policy covering both Ingress and Egress
     set:
@@ -32,18 +34,46 @@ tests:
       global.networkPolicy.enabled: false
     templates:
       - networkpolicy/default-deny.yaml
+      - networkpolicy/allow-same-namespace.yaml
       - networkpolicy/allow-internal.yaml
+      - networkpolicy/allow-egress.yaml
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: allows same-namespace pods unrestricted ingress and egress to each other
+    set:
+      global.networkPolicy.enabled: true
+    template: networkpolicy/allow-same-namespace.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector
+          value: {}
+      - equal:
+          path: spec.egress[0].to[0].podSelector
+          value: {}
 
   - it: restricts frontend ingress to the configured allow-list namespaces
     set:
       global.networkPolicy.enabled: true
       networkPolicy.allowFromNamespaces: ["ingress-nginx"]
     template: networkpolicy/allow-internal.yaml
-    documentIndex: 1
+    documentIndex: 0
     asserts:
       - equal:
           path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
           value: ingress-nginx
+
+  - it: allows external HTTPS/Vault/SMTP egress by port only, to any destination
+    set:
+      global.networkPolicy.enabled: true
+    template: networkpolicy/allow-egress.yaml
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.cidr
+          value: 0.0.0.0/0
+      - contains:
+          path: spec.egress[0].ports
+          content:
+            protocol: TCP
+            port: 443

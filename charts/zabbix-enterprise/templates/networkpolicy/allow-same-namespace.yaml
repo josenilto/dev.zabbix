@@ -1,0 +1,33 @@
+{{- if .Values.global.networkPolicy.enabled }}
+{{/*
+This chart bundles ~10 components (Zabbix + kube-prometheus-stack + Grafana + Loki +
+Alloy + Tempo + OTel Collector + the DB subchart) as one release in one namespace by
+design (see gitops/README.md "Why an umbrella chart"). They constantly talk to each
+other - Grafana to Prometheus/Loki/Tempo, Alloy to Loki/Prometheus, OTel to Tempo, Zabbix
+Server/Frontend to the database - and each upstream subchart has its own pod label
+conventions, not this chart's app.kubernetes.io/part-of=zabbix-enterprise label. Rather
+than hand-enumerate every internal service pairing across charts we don't control (high
+maintenance cost, breaks silently on a subchart upgrade that changes ports/labels), the
+trust boundary here is the namespace itself: anything inside can reach anything else
+inside. The genuine external boundaries (ingress from outside the namespace, egress to
+the internet) stay explicitly scoped in allow-internal.yaml / allow-egress.yaml.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "zabbix-enterprise.fullname" . }}-allow-same-namespace
+  namespace: {{ include "zabbix-enterprise.namespace" . }}
+  labels:
+    {{- include "zabbix-enterprise.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+{{- end }}

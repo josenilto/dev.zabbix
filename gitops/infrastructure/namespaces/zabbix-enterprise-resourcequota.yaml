@@ -1,0 +1,46 @@
+## Safety net, not a substitute for real capacity planning: caps total consumption in the
+## zabbix-enterprise namespace so a runaway HPA/misconfigured replica count can't starve
+## every other tenant namespace on a shared cluster, and gives every container a sane
+## default request/limit if a future template (or a Helm --set override) ever omits one.
+## Sized generously for a prd-scale install (Zabbix HA cluster + full kube-prometheus-stack
+## + Grafana + Loki SimpleScalable + Tempo + Alloy DaemonSet + OTel Collector, each at
+## 2-3 replicas) - re-tune per actual cluster capacity, this is a starting point.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: zabbix-enterprise-quota
+  namespace: zabbix-enterprise
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  hard:
+    requests.cpu: "40"
+    requests.memory: 80Gi
+    limits.cpu: "80"
+    limits.memory: 160Gi
+    pods: "150"
+    persistentvolumeclaims: "30"
+    services.loadbalancers: "2"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: zabbix-enterprise-limits
+  namespace: zabbix-enterprise
+  labels:
+    app.kubernetes.io/part-of: zabbix-enterprise
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "4"
+        memory: 8Gi
+      min:
+        cpu: 10m
+        memory: 16Mi

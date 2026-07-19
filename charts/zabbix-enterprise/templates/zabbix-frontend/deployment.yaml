@@ -36,6 +36,8 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        {{- include "zabbix-enterprise.waitForDbInitContainer" (dict "root" $) | nindent 8 }}
       containers:
         - name: zabbix-frontend
           image: {{ include "zabbix-enterprise.image" (dict "root" $ "repository" .Values.zabbix.frontend.image.repository "tag" .Values.zabbix.frontend.image.tag) }}
@@ -47,11 +49,7 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
-            - name: DB_SERVER_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: {{ if .Values.database.external.enabled }}{{ .Values.database.external.existingSecretName }}{{ else }}{{ .Values.database.internal.mysql.auth.existingSecret }}{{ end }}
-                  key: host
+            {{- include "zabbix-enterprise.dbServerHostEnv" (dict "root" $) | nindent 12 }}
             - name: MYSQL_DATABASE
               value: {{ .Values.database.internal.mysql.auth.database | default .Values.database.external.database }}
             - name: MYSQL_USER
@@ -83,17 +81,22 @@ spec:
               mountPath: /var/lib/php/session
           resources:
             {{- toYaml .Values.zabbix.frontend.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 20
             periodSeconds: 20
       volumes:
         - name: tmp

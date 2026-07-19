@@ -16,10 +16,15 @@ zabbix:
 
 database:
   external:
-    enabled: true
+    # NOTE: whether external mode is actually *active* is an environment decision (see
+    # values-dev/hml/prd.yaml database.external.enabled) - dev stays on the internal
+    # quick-start MySQL even on AWS. These are the defaults that apply once prd/hml turns
+    # it on. host is a placeholder required by the chart to render/validate out of the
+    # box; the real value comes from gitops/clusters/aws/<env>/values.yaml.
     engine: mysql                   # Amazon RDS for MySQL, or Aurora MySQL-compatible
     port: 3306
     sslMode: require
+    host: "CHANGEME.rds.amazonaws.com"
     existingSecretName: zabbix-db-external-credentials   # populated via ExternalSecret from Vault/Secrets Manager
 
 loki:

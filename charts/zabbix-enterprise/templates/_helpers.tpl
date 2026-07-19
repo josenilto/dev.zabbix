@@ -107,3 +107,71 @@ Usage: {{ include "zabbix-enterprise.image" (dict "root" $ "repository" .Values.
 {{- printf "%s:%s" .repository .tag -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The database port isn't broken out as its own value - it follows from which engine is
+active. Centralized here so the wait-for-db init container and any future template that
+needs it stay in sync with database.external.enabled / .external.port /
+.internal.postgresql.enabled automatically.
+Usage: {{ include "zabbix-enterprise.databasePort" . }}
+*/}}
+{{- define "zabbix-enterprise.databasePort" -}}
+{{- if .Values.database.external.enabled -}}
+{{- .Values.database.external.port -}}
+{{- else if .Values.database.internal.postgresql.enabled -}}
+5432
+{{- else -}}
+3306
+{{- end -}}
+{{- end -}}
+
+{{/*
+DB_SERVER_HOST env entry. A hostname is not sensitive, so for an external/managed
+database (values.database.external.*, the common prod path - RDS/Azure DB/Cloud
+SQL/Autonomous DB) it comes straight from values (GitOps-visible, no Vault round-trip
+needed) with a required guard so a forgotten host fails fast at render time instead of
+deploying a Zabbix Server that can never reach its database. The internal MySQL/
+PostgreSQL quick-start path keeps sourcing host from the same Secret as the credentials,
+since docs/operations/runbook.md already walks through provisioning that Secret once.
+Usage: {{ include "zabbix-enterprise.dbServerHostEnv" (dict "root" $) }}
+*/}}
+{{- define "zabbix-enterprise.dbServerHostEnv" -}}
+- name: DB_SERVER_HOST
+{{- if .root.Values.database.external.enabled }}
+  value: {{ required "database.external.host must be set when database.external.enabled is true (see values-<cloud>.yaml / gitops/clusters/<cloud>/<env>/values.yaml)" .root.Values.database.external.host | quote }}
+{{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .root.Values.database.internal.mysql.auth.existingSecret }}
+      key: host
+{{- end }}
+{{- end -}}
+
+{{/*
+Blocks the main container from starting until the database TCP port accepts
+connections - avoids a crash-loop race on a fresh install where the internal MySQL/
+PostgreSQL subchart's Pod hasn't finished starting yet (Helm does not sequence subchart
+readiness for you). Harmless against an already-up external managed database too.
+Usage: {{ include "zabbix-enterprise.waitForDbInitContainer" (dict "root" $) }}
+*/}}
+{{- define "zabbix-enterprise.waitForDbInitContainer" -}}
+- name: wait-for-db
+  image: busybox:1.36
+  securityContext:
+    {{- include "zabbix-enterprise.containerSecurityContext" .root | nindent 4 }}
+  env:
+    {{- include "zabbix-enterprise.dbServerHostEnv" (dict "root" .root) | nindent 4 }}
+  command:
+    - /bin/sh
+    - -c
+    - |
+      echo "Waiting for database ${DB_SERVER_HOST}:{{ include "zabbix-enterprise.databasePort" .root }} ..."
+      until nc -z -w2 "${DB_SERVER_HOST}" {{ include "zabbix-enterprise.databasePort" .root }}; do
+        echo "Database not reachable yet, retrying in 3s..."
+        sleep 3
+      done
+      echo "Database is reachable."
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 100m, memory: 32Mi }
+{{- end -}}

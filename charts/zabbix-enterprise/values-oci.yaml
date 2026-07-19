@@ -16,10 +16,14 @@ zabbix:
 
 database:
   external:
-    enabled: true
+    # NOTE: whether external mode is actually *active* is an environment decision (see
+    # values-dev/hml/prd.yaml database.external.enabled). host is a placeholder required
+    # by the chart to render/validate out of the box; the real value comes from
+    # gitops/clusters/oci/<env>/values.yaml.
     engine: mysql                   # MySQL HeatWave, or point at Autonomous DB via a compatible driver/proxy
     port: 3306
     sslMode: require
+    host: "CHANGEME.mysql.us-ashburn-1.oci.oraclecloud.com"
     existingSecretName: zabbix-db-external-credentials
 
 loki:

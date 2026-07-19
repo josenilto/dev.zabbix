@@ -49,14 +49,24 @@ starting points, not a substitute for capacity planning against real query load.
 
 ## Network policy model
 
-Default-deny (`templates/networkpolicy/default-deny.yaml`) plus four explicit allow
-policies: server ingress (from any `part-of=zabbix-enterprise` pod, i.e. proxies/frontend,
-plus the `monitoring` namespace for external scrapers), frontend ingress (from
-`networkPolicy.allowFromNamespaces`, typically the ingress controller), agent ingress
-(trapper reverse-connections from server/proxies only), and monitoring-scrape ingress
-(Prometheus/Alloy pulling `/metrics`). Egress is deny-all except DNS - every component
-that needs to reach outside the namespace (Vault, cloud APIs, the exporters) does so over
-the podSelector-scoped allow rules, not a namespace-wide egress punch-through.
+The trust boundary is the **namespace**, not the pod: default-deny
+(`templates/networkpolicy/default-deny.yaml`) locks every pod down to DNS-only egress,
+then `allow-same-namespace.yaml` re-opens unrestricted ingress+egress *between pods in
+this namespace only*. This chart bundles ~10 upstream components (kube-prometheus-stack,
+Grafana, Loki, Alloy, Tempo, OTel Collector, the DB subchart) as one release, each with
+its own pod-label conventions - hand-enumerating every internal service pairing across
+charts this repo doesn't control would be fragile (silently breaks on a subchart upgrade
+that changes a label or port) for little real security benefit, since namespace isolation
+and RBAC are already the primary tenancy boundary (see `docs/security/iam-model.md`).
+
+What stays explicitly scoped are the two genuine external boundaries
+(`allow-internal.yaml`): frontend ingress from `networkPolicy.allowFromNamespaces`
+(typically the ingress controller) and, optionally, a cluster-wide meta-monitoring
+Prometheus scraping in from another namespace. Egress to the internet
+(`allow-egress.yaml`) is scoped by port only (443/8200/587) to any destination, since
+Vault/cloud provider APIs/webhook receivers are reached by DNS name with unstable IPs -
+vanilla NetworkPolicy has no way to allow-by-DNS-name. For tighter control than
+"by port, anywhere," add a network-layer egress firewall/proxy in front of the cluster.
 
 ## Storage classes
 

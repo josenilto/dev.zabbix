@@ -74,3 +74,28 @@ tests:
       - equal:
           path: spec.minAvailable
           value: 2
+
+  - it: blocks startup on the database being reachable before the main container starts
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-db
+
+  - it: gives the HA cluster generous startup time before falling back to steady-state probing
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - isNotNull:
+          path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 60
+
+  - it: fails to render when external DB mode is on but no host is configured
+    set:
+      database.external.enabled: true
+      database.external.host: ""
+    template: zabbix-server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "database.external.host must be set when database.external.enabled is true (see values-<cloud>.yaml / gitops/clusters/<cloud>/<env>/values.yaml)"
